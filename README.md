@@ -55,6 +55,8 @@ git push -u origin main
 В проект уже добавлены:
 - `vercel.json`
 - `scripts/vercel-build.sh`
+- `web/sqlite3.wasm`
+- `web/sqflite_sw.js`
 
 Шаги:
 1. Загрузите проект в GitHub.
@@ -65,3 +67,15 @@ git push -u origin main
 4. Нажмите `Deploy`.
 
 После первого деплоя любой push в `main` будет деплоиться автоматически.
+
+### Важно для Web SQLite
+
+Для работы локальной БД в браузере нужны файлы:
+- `web/sqlite3.wasm`
+- `web/sqflite_sw.js`
+
+Если обновляете пакет `sqflite_common_ffi_web`, перегенерируйте их:
+
+```powershell
+dart run sqflite_common_ffi_web:setup --force
+```
