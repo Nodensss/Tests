@@ -6,6 +6,21 @@ import 'package:uuid/uuid.dart';
 
 import '../models/question.dart';
 
+class AddQuestionsProgress {
+  const AddQuestionsProgress({
+    required this.processed,
+    required this.total,
+    required this.changed,
+  });
+
+  final int processed;
+  final int total;
+  final int changed;
+}
+
+typedef AddQuestionsProgressCallback =
+    void Function(AddQuestionsProgress progress);
+
 class DatabaseService {
   DatabaseService._();
 
@@ -113,17 +128,35 @@ class DatabaseService {
     );
   }
 
-  Future<int> addQuestions(List<Question> questions) async {
+  Future<int> addQuestions(
+    List<Question> questions, {
+    AddQuestionsProgressCallback? onProgress,
+  }) async {
     if (questions.isEmpty) {
       return 0;
     }
     final db = await database;
     var changed = 0;
+    var processed = 0;
+
+    onProgress?.call(
+      AddQuestionsProgress(processed: 0, total: questions.length, changed: 0),
+    );
 
     await db.transaction((txn) async {
       for (final question in questions) {
         if (question.questionText.trim().isEmpty ||
             question.correctAnswer.trim().isEmpty) {
+          processed += 1;
+          if (processed % 20 == 0 || processed == questions.length) {
+            onProgress?.call(
+              AddQuestionsProgress(
+                processed: processed,
+                total: questions.length,
+                changed: changed,
+              ),
+            );
+          }
           continue;
         }
         final normalizedQuestionText = question.questionText.trim();
@@ -191,6 +224,16 @@ class DatabaseService {
             );
             if (repaired > 0) {
               changed += repaired;
+              processed += 1;
+              if (processed % 20 == 0 || processed == questions.length) {
+                onProgress?.call(
+                  AddQuestionsProgress(
+                    processed: processed,
+                    total: questions.length,
+                    changed: changed,
+                  ),
+                );
+              }
               continue;
             }
           }
@@ -222,6 +265,16 @@ class DatabaseService {
         );
         if (insertedId > 0) {
           changed += 1;
+          processed += 1;
+          if (processed % 20 == 0 || processed == questions.length) {
+            onProgress?.call(
+              AddQuestionsProgress(
+                processed: processed,
+                total: questions.length,
+                changed: changed,
+              ),
+            );
+          }
           continue;
         }
 
@@ -262,6 +315,16 @@ class DatabaseService {
         if (updated > 0) {
           changed += updated;
         }
+        processed += 1;
+        if (processed % 20 == 0 || processed == questions.length) {
+          onProgress?.call(
+            AddQuestionsProgress(
+              processed: processed,
+              total: questions.length,
+              changed: changed,
+            ),
+          );
+        }
       }
 
       await txn.execute('''
@@ -272,6 +335,14 @@ class DatabaseService {
         WHERE sr.question_id IS NULL;
       ''');
     });
+
+    onProgress?.call(
+      AddQuestionsProgress(
+        processed: questions.length,
+        total: questions.length,
+        changed: changed,
+      ),
+    );
 
     return changed;
   }

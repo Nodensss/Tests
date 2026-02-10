@@ -413,15 +413,14 @@ class _StudyScreenState extends State<StudyScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             if (!session.answeredCurrent) ...<Widget>[
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
+              Column(
                 children: options
                     .map(
-                      (option) => ChoiceChip(
+                      (option) => _buildAnswerOptionTile(
+                        context: context,
+                        text: option,
                         selected: _selectedOption == option,
-                        label: Text(option),
-                        onSelected: (_) {
+                        onTap: () {
                           setState(() {
                             _selectedOption = option;
                           });
@@ -456,7 +455,12 @@ class _StudyScreenState extends State<StudyScreen> {
               ),
               if (!session.lastIsCorrect) ...<Widget>[
                 const SizedBox(height: 6),
-                Text('Правильный ответ: ${question.correctAnswer}'),
+                const Text('Правильный ответ:'),
+                const SizedBox(height: 4),
+                SelectableText(
+                  question.correctAnswer,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
               ],
               const SizedBox(height: 4),
               Text('Время: ${session.lastTimeSeconds.toStringAsFixed(1)} сек'),
@@ -499,7 +503,7 @@ class _StudyScreenState extends State<StudyScreen> {
                     color: Colors.blueGrey.withValues(alpha: 0.25),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Text(_explanation!),
+                  child: SelectableText(_explanation!),
                 ),
               ],
             ],
@@ -525,7 +529,7 @@ class _StudyScreenState extends State<StudyScreen> {
                 child: const Text('Показать ответ'),
               )
             else ...<Widget>[
-              Text(
+              SelectableText(
                 question.correctAnswer,
                 style: const TextStyle(
                   fontSize: 17,
@@ -709,6 +713,38 @@ class _StudyScreenState extends State<StudyScreen> {
         const SnackBar(content: Text('Не удалось открыть браузер')),
       );
     }
+  }
+
+  Widget _buildAnswerOptionTile({
+    required BuildContext context,
+    required String text,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final theme = Theme.of(context);
+    final borderColor = selected
+        ? theme.colorScheme.secondary
+        : Colors.white.withValues(alpha: 0.28);
+    final background = selected
+        ? theme.colorScheme.secondary.withValues(alpha: 0.18)
+        : Colors.transparent;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: borderColor, width: selected ? 2 : 1),
+          ),
+          child: Text(text, softWrap: true),
+        ),
+      ),
+    );
   }
 
   Future<void> _confirmResetSession(

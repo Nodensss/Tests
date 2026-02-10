@@ -468,15 +468,40 @@ class AppState extends ChangeNotifier {
     _setBusyState(
       value: true,
       title: 'Сохранение в базу',
-      details: 'Запись вопросов в SQLite',
-      progress: null,
+      details: 'Подготовка записи',
+      progress: 0.0,
       resetTimer: true,
     );
     errorMessage = null;
     try {
       uploadQuestions = _normalizeUploadCompetencies(uploadQuestions);
       final inputCount = uploadQuestions.length;
-      final inserted = await databaseService.addQuestions(uploadQuestions);
+      final inserted = await databaseService.addQuestions(
+        uploadQuestions,
+        onProgress: (progress) {
+          final total = progress.total;
+          final done = progress.processed;
+          final ratio = total == 0 ? 1.0 : (done / total).clamp(0.0, 1.0);
+          var details =
+              'Запись: $done/$total · сохранено/обновлено: ${progress.changed}';
+          final started = _busyStartedAt;
+          if (started != null && done > 0 && done < total) {
+            final elapsed = DateTime.now().difference(started);
+            final remainingItems = total - done;
+            final avgPerItemMs = elapsed.inMilliseconds / done;
+            final eta = Duration(
+              milliseconds: (avgPerItemMs * remainingItems).round(),
+            );
+            details = '$details · ETA ${_formatEta(eta)}';
+          }
+          _setBusyState(
+            value: true,
+            title: 'Сохранение в базу',
+            details: details,
+            progress: ratio,
+          );
+        },
+      );
       uploadSaved = true;
       lastSaveInputCount = inputCount;
       lastSaveChangedCount = inserted;
