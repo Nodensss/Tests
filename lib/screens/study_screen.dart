@@ -123,64 +123,26 @@ class _StudyScreenState extends State<StudyScreen> {
                   },
                 ),
                 const SizedBox(height: 10),
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        initialValue: _category,
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          labelText: 'Категория',
-                        ),
-                        items: appState.categories
-                            .map(
-                              (c) => DropdownMenuItem<String>(
-                                value: c,
-                                child: Text(c),
-                              ),
-                            )
-                            .toList(growable: false),
-                        onChanged: (value) {
-                          if (value == null) {
-                            return;
-                          }
-                          setState(() {
-                            _category = value;
-                            _useAllQuestions = false;
-                          });
-                          _refreshAvailableCount(appState);
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: DropdownButtonFormField<int?>(
-                        initialValue: _difficulty,
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          labelText: 'Сложность',
-                        ),
-                        items: const <DropdownMenuItem<int?>>[
-                          DropdownMenuItem<int?>(
-                            value: null,
-                            child: Text('Все'),
-                          ),
-                          DropdownMenuItem<int?>(value: 1, child: Text('1')),
-                          DropdownMenuItem<int?>(value: 2, child: Text('2')),
-                          DropdownMenuItem<int?>(value: 3, child: Text('3')),
-                          DropdownMenuItem<int?>(value: 4, child: Text('4')),
-                          DropdownMenuItem<int?>(value: 5, child: Text('5')),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final compact = constraints.maxWidth < 900;
+                    if (compact) {
+                      return Column(
+                        children: <Widget>[
+                          _buildCategoryField(appState),
+                          const SizedBox(height: 10),
+                          _buildDifficultyField(appState),
                         ],
-                        onChanged: (value) {
-                          setState(() {
-                            _difficulty = value;
-                            _useAllQuestions = false;
-                          });
-                          _refreshAvailableCount(appState);
-                        },
-                      ),
-                    ),
-                  ],
+                      );
+                    }
+                    return Row(
+                      children: <Widget>[
+                        Expanded(child: _buildCategoryField(appState)),
+                        const SizedBox(width: 10),
+                        Expanded(child: _buildDifficultyField(appState)),
+                      ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 10),
                 Row(
@@ -296,6 +258,69 @@ class _StudyScreenState extends State<StudyScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildCategoryField(AppState appState) {
+    return DropdownButtonFormField<String>(
+      initialValue: _category,
+      isExpanded: true,
+      decoration: const InputDecoration(
+        border: OutlineInputBorder(),
+        labelText: 'Категория',
+      ),
+      items: appState.categories
+          .map(
+            (c) => DropdownMenuItem<String>(
+              value: c,
+              child: Text(c, maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
+          )
+          .toList(growable: false),
+      selectedItemBuilder: (context) => appState.categories
+          .map(
+            (c) => Align(
+              alignment: Alignment.centerLeft,
+              child: Text(c, maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
+          )
+          .toList(growable: false),
+      onChanged: (value) {
+        if (value == null) {
+          return;
+        }
+        setState(() {
+          _category = value;
+          _useAllQuestions = false;
+        });
+        _refreshAvailableCount(appState);
+      },
+    );
+  }
+
+  Widget _buildDifficultyField(AppState appState) {
+    return DropdownButtonFormField<int?>(
+      initialValue: _difficulty,
+      isExpanded: true,
+      decoration: const InputDecoration(
+        border: OutlineInputBorder(),
+        labelText: 'Сложность',
+      ),
+      items: const <DropdownMenuItem<int?>>[
+        DropdownMenuItem<int?>(value: null, child: Text('Все')),
+        DropdownMenuItem<int?>(value: 1, child: Text('1')),
+        DropdownMenuItem<int?>(value: 2, child: Text('2')),
+        DropdownMenuItem<int?>(value: 3, child: Text('3')),
+        DropdownMenuItem<int?>(value: 4, child: Text('4')),
+        DropdownMenuItem<int?>(value: 5, child: Text('5')),
+      ],
+      onChanged: (value) {
+        setState(() {
+          _difficulty = value;
+          _useAllQuestions = false;
+        });
+        _refreshAvailableCount(appState);
+      },
     );
   }
 

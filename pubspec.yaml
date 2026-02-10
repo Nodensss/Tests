@@ -47,6 +47,7 @@ dependencies:
   google_generative_ai: ^0.4.7
   crypto: ^3.0.6
   http: ^1.6.0
+  sqflite_common_ffi_web: ^1.0.2
 
 dev_dependencies:
   flutter_test:

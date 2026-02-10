@@ -18,6 +18,16 @@ class _UploadScreenState extends State<UploadScreen> {
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
     final questions = appState.uploadQuestions;
+    final duplicateGroups = appState.uploadDuplicateGroups;
+    final duplicateRows = duplicateGroups.fold<int>(
+      0,
+      (sum, group) => sum + group.duplicatesOnly,
+    );
+    final savedInput = appState.lastSaveInputCount;
+    final savedChanged = appState.lastSaveChangedCount;
+    final skipped = (savedInput != null && savedChanged != null)
+        ? (savedInput - savedChanged).clamp(0, savedInput)
+        : 0;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
@@ -114,6 +124,17 @@ class _UploadScreenState extends State<UploadScreen> {
                       label: const Text('Очистить'),
                     ),
                     TextButton.icon(
+                      onPressed: appState.busy || questions.isEmpty
+                          ? null
+                          : () => _showDuplicatesDialog(
+                              context,
+                              duplicateGroups,
+                              duplicateRows,
+                            ),
+                      icon: const Icon(Icons.copy_all_outlined),
+                      label: Text('Показать дубли ($duplicateRows)'),
+                    ),
+                    TextButton.icon(
                       onPressed: appState.busy
                           ? null
                           : () => _confirmResetDatabase(context, appState),
@@ -206,6 +227,33 @@ class _UploadScreenState extends State<UploadScreen> {
                       ),
                   ],
                 ),
+                if (appState.uploadSaved &&
+                    savedInput != null &&
+                    savedChanged != null) ...<Widget>[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Сохранено/обновлено в БД: $savedChanged из $savedInput',
+                    style: TextStyle(color: Colors.grey.shade300, fontSize: 13),
+                  ),
+                  if (skipped > 0)
+                    Text(
+                      'Пропущено: $skipped (дубли или строки без вопроса/правильного ответа).',
+                      style: TextStyle(
+                        color: Colors.orange.shade300,
+                        fontSize: 12,
+                      ),
+                    ),
+                ],
+                if (duplicateRows > 0) ...<Widget>[
+                  const SizedBox(height: 4),
+                  Text(
+                    'В загруженном наборе найдено дублей: $duplicateRows строк.',
+                    style: TextStyle(
+                      color: Colors.orange.shade300,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 _PreviewTable(),
               ],
@@ -313,6 +361,83 @@ class _UploadScreenState extends State<UploadScreen> {
         ),
       );
     }
+  }
+
+  Future<void> _showDuplicatesDialog(
+    BuildContext context,
+    List<UploadDuplicateGroup> groups,
+    int duplicateRows,
+  ) async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Дубли в загруженных вопросах'),
+        content: SizedBox(
+          width: 920,
+          height: 500,
+          child: groups.isEmpty
+              ? const Center(child: Text('Дубли не найдены.'))
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      'Групп дублей: ${groups.length}, лишних строк: $duplicateRows',
+                    ),
+                    const SizedBox(height: 10),
+                    Expanded(
+                      child: ListView.separated(
+                        itemCount: groups.length,
+                        separatorBuilder: (_, __) => const Divider(height: 16),
+                        itemBuilder: (context, index) {
+                          final item = groups[index];
+                          final sourceText = item.sources.join(', ');
+                          final wrong1 = item.wrongAnswers.isNotEmpty
+                              ? item.wrongAnswers[0]
+                              : '';
+                          final wrong2 = item.wrongAnswers.length > 1
+                              ? item.wrongAnswers[1]
+                              : '';
+                          final wrong3 = item.wrongAnswers.length > 2
+                              ? item.wrongAnswers[2]
+                              : '';
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                '${index + 1}. Повторений: ${item.count} (лишних ${item.duplicatesOnly})',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text('Вопрос: ${item.questionText}'),
+                              Text('Правильный: ${item.correctAnswer}'),
+                              if (wrong1.trim().isNotEmpty)
+                                Text('Неправильный 1: $wrong1'),
+                              if (wrong2.trim().isNotEmpty)
+                                Text('Неправильный 2: $wrong2'),
+                              if (wrong3.trim().isNotEmpty)
+                                Text('Неправильный 3: $wrong3'),
+                              Text(
+                                'Источники: $sourceText',
+                                style: TextStyle(color: Colors.grey.shade300),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Закрыть'),
+          ),
+        ],
+      ),
+    );
   }
 }
 

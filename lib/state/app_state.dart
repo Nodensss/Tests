@@ -13,6 +13,24 @@ class _BusyProgressMarker {
   const _BusyProgressMarker();
 }
 
+class UploadDuplicateGroup {
+  const UploadDuplicateGroup({
+    required this.questionText,
+    required this.correctAnswer,
+    required this.wrongAnswers,
+    required this.count,
+    required this.sources,
+  });
+
+  final String questionText;
+  final String correctAnswer;
+  final List<String> wrongAnswers;
+  final int count;
+  final List<String> sources;
+
+  int get duplicatesOnly => count > 1 ? count - 1 : 0;
+}
+
 enum AiProvider { openrouter, local }
 
 extension AiProviderX on AiProvider {
@@ -106,6 +124,8 @@ class AppState extends ChangeNotifier {
   List<String> uploadWarnings = <String>[];
   bool uploadCategorized = false;
   bool uploadSaved = false;
+  int? lastSaveInputCount;
+  int? lastSaveChangedCount;
 
   StudySessionState? studySession;
 
@@ -232,6 +252,74 @@ class AppState extends ChangeNotifier {
     return questions.map(_withResolvedCompetency).toList(growable: false);
   }
 
+  String _normalizeForDuplicate(String value) {
+    return value.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  String _buildDuplicateKey(Question question) {
+    final wrong = List<String>.from(question.wrongAnswers);
+    while (wrong.length < 3) {
+      wrong.add('');
+    }
+    return <String>[
+      _normalizeForDuplicate(question.questionText),
+      _normalizeForDuplicate(question.correctAnswer),
+      _normalizeForDuplicate(wrong[0]),
+      _normalizeForDuplicate(wrong[1]),
+      _normalizeForDuplicate(wrong[2]),
+    ].join('||');
+  }
+
+  List<UploadDuplicateGroup> get uploadDuplicateGroups {
+    if (uploadQuestions.isEmpty) {
+      return const <UploadDuplicateGroup>[];
+    }
+    final buckets = <String, List<Question>>{};
+    for (final question in uploadQuestions) {
+      final key = _buildDuplicateKey(question);
+      buckets.putIfAbsent(key, () => <Question>[]).add(question);
+    }
+
+    final groups = <UploadDuplicateGroup>[];
+    for (final bucket in buckets.values) {
+      if (bucket.length < 2) {
+        continue;
+      }
+      final first = bucket.first;
+      final sources = bucket
+          .map((q) {
+            final source = q.sourceFile?.trim() ?? '';
+            return source.isEmpty ? 'неизвестный источник' : source;
+          })
+          .toSet()
+          .toList(growable: false);
+      groups.add(
+        UploadDuplicateGroup(
+          questionText: first.questionText,
+          correctAnswer: first.correctAnswer,
+          wrongAnswers: List<String>.from(first.wrongAnswers),
+          count: bucket.length,
+          sources: sources,
+        ),
+      );
+    }
+    groups.sort((a, b) {
+      final byCount = b.count.compareTo(a.count);
+      if (byCount != 0) {
+        return byCount;
+      }
+      return a.questionText.compareTo(b.questionText);
+    });
+    return groups;
+  }
+
+  int get uploadDuplicateRows {
+    return uploadDuplicateGroups.fold<int>(
+      0,
+      (sum, group) => sum + group.duplicatesOnly,
+    );
+  }
+
   Future<void> parseFiles(List<PlatformFile> files) async {
     _setBusyState(
       value: true,
@@ -279,6 +367,8 @@ class AppState extends ChangeNotifier {
       uploadWarnings = warnings;
       uploadCategorized = false;
       uploadSaved = false;
+      lastSaveInputCount = null;
+      lastSaveChangedCount = null;
     } catch (e) {
       errorMessage = 'Ошибка парсинга файлов: $e';
     } finally {
@@ -385,8 +475,11 @@ class AppState extends ChangeNotifier {
     errorMessage = null;
     try {
       uploadQuestions = _normalizeUploadCompetencies(uploadQuestions);
+      final inputCount = uploadQuestions.length;
       final inserted = await databaseService.addQuestions(uploadQuestions);
       uploadSaved = true;
+      lastSaveInputCount = inputCount;
+      lastSaveChangedCount = inserted;
       await refreshDashboard();
       return inserted;
     } catch (e) {
@@ -464,6 +557,8 @@ class AppState extends ChangeNotifier {
     uploadWarnings = <String>[];
     uploadCategorized = false;
     uploadSaved = false;
+    lastSaveInputCount = null;
+    lastSaveChangedCount = null;
     notifyListeners();
   }
 
@@ -482,6 +577,8 @@ class AppState extends ChangeNotifier {
       uploadWarnings = <String>[];
       uploadCategorized = false;
       uploadSaved = false;
+      lastSaveInputCount = null;
+      lastSaveChangedCount = null;
       studySession = null;
       await refreshDashboard();
     } catch (e) {
