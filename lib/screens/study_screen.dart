@@ -461,6 +461,17 @@ class _StudyScreenState extends State<StudyScreen> {
                   question.correctAnswer,
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
+                if (question.correctAnswer.trim().length > 120)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: () => _showFullTextDialog(
+                        title: 'Полный ответ',
+                        text: question.correctAnswer,
+                      ),
+                      child: const Text('Открыть полностью'),
+                    ),
+                  ),
               ],
               const SizedBox(height: 4),
               Text('Время: ${session.lastTimeSeconds.toStringAsFixed(1)} сек'),
@@ -536,6 +547,17 @@ class _StudyScreenState extends State<StudyScreen> {
                   fontWeight: FontWeight.w700,
                 ),
               ),
+              if (question.correctAnswer.trim().length > 120)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: () => _showFullTextDialog(
+                      title: 'Полный ответ',
+                      text: question.correctAnswer,
+                    ),
+                    child: const Text('Открыть полностью'),
+                  ),
+                ),
               const SizedBox(height: 8),
               if (!session.answeredCurrent)
                 Wrap(
@@ -741,8 +763,58 @@ class _StudyScreenState extends State<StudyScreen> {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: borderColor, width: selected ? 2 : 1),
           ),
-          child: Text(text, softWrap: true),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(text, softWrap: true),
+              if (text.trim().length > 120)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: () => _showFullTextDialog(
+                      title: 'Полный вариант ответа',
+                      text: text,
+                    ),
+                    child: const Text('Открыть полностью'),
+                  ),
+                ),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  Future<void> _showFullTextDialog({
+    required String title,
+    required String text,
+  }) async {
+    if (!mounted) {
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: SizedBox(
+          width: 720,
+          height: 420,
+          child: Scrollbar(
+            thumbVisibility: true,
+            child: SingleChildScrollView(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SelectableText(text),
+              ),
+            ),
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Закрыть'),
+          ),
+        ],
       ),
     );
   }
