@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../models/question.dart';
 import '../services/quiz_engine.dart';
 import '../state/app_state.dart';
 
@@ -373,6 +375,12 @@ class _StudyScreenState extends State<StudyScreen> {
                     Chip(label: Text('Difficulty ${question.difficulty}')),
                   ],
                 ),
+                const SizedBox(height: 8),
+                FilledButton.tonalIcon(
+                  onPressed: () => _searchQuestionInWeb(question),
+                  icon: const Icon(Icons.travel_explore_outlined),
+                  label: const Text('Искать в интернете'),
+                ),
               ],
             ),
           ),
@@ -676,6 +684,31 @@ class _StudyScreenState extends State<StudyScreen> {
       _optionsCache.clear();
     });
     appState.stopSession();
+  }
+
+  Future<void> _searchQuestionInWeb(Question question) async {
+    final questionText = question.questionText.trim();
+    final correctAnswer = question.correctAnswer.trim();
+    final query = <String>[
+      if (questionText.isNotEmpty) questionText,
+      if (correctAnswer.isNotEmpty) correctAnswer,
+    ].join(' ');
+    if (query.isEmpty) {
+      return;
+    }
+    final uri = Uri.parse(
+      'https://www.google.com/search?q=${Uri.encodeQueryComponent(query)}',
+    );
+    final launched = await launchUrl(
+      uri,
+      mode: LaunchMode.platformDefault,
+      webOnlyWindowName: '_blank',
+    );
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Не удалось открыть браузер')),
+      );
+    }
   }
 
   Future<void> _confirmResetSession(
