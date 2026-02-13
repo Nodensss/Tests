@@ -68,17 +68,24 @@ class OpenRouterService {
     required String template,
     required String question,
     required String correctAnswer,
+    String internetContext = '',
   }) {
     final usesQuestion = template.contains('{question}');
     final usesAnswer = template.contains('{correct_answer}');
+    final usesInternet = template.contains('{internet_context}');
     var rendered = template
         .replaceAll('{question}', question)
-        .replaceAll('{correct_answer}', correctAnswer);
+        .replaceAll('{correct_answer}', correctAnswer)
+        .replaceAll('{internet_context}', internetContext.trim());
     if (!usesQuestion) {
       rendered = '$rendered\n\nВопрос: $question';
     }
     if (!usesAnswer) {
       rendered = '$rendered\nПравильный ответ: $correctAnswer';
+    }
+    if (!usesInternet && internetContext.trim().isNotEmpty) {
+      rendered =
+          '$rendered\n\nКонтекст из интернета (проверьте факты по источникам):\n$internetContext';
     }
     return rendered;
   }
@@ -699,6 +706,7 @@ $listText
     required String correctAnswer,
     String? systemPrompt,
     String? userPromptTemplate,
+    String? internetContext,
   }) async {
     final resolvedSystemPrompt =
         (systemPrompt ?? defaultExplanationSystemPrompt).trim();
@@ -708,6 +716,7 @@ $listText
       template: resolvedUserTemplate,
       question: question,
       correctAnswer: correctAnswer,
+      internetContext: internetContext ?? '',
     );
 
     final cacheKey = _cacheKey('explanation_openrouter', <String, Object>{
@@ -715,6 +724,7 @@ $listText
       'model': modelName,
       'system_prompt': resolvedSystemPrompt,
       'user_prompt_template': resolvedUserTemplate,
+      'internet_context': internetContext?.trim() ?? '',
       'question': question,
       'answer': correctAnswer,
     });
@@ -816,6 +826,7 @@ ${jsonEncode(stats)}
     required String correctAnswer,
     String? systemPrompt,
     String? userPromptTemplate,
+    String? internetContext,
   }) async {
     final resolvedSystemPrompt = (systemPrompt ?? defaultMemoryTipSystemPrompt)
         .trim();
@@ -825,6 +836,7 @@ ${jsonEncode(stats)}
       template: resolvedUserTemplate,
       question: question,
       correctAnswer: correctAnswer,
+      internetContext: internetContext ?? '',
     );
 
     final cacheKey = _cacheKey('memory_tip_openrouter', <String, Object>{
@@ -832,6 +844,7 @@ ${jsonEncode(stats)}
       'model': modelName,
       'system_prompt': resolvedSystemPrompt,
       'user_prompt_template': resolvedUserTemplate,
+      'internet_context': internetContext?.trim() ?? '',
       'question_id': questionId,
       'question': question,
       'answer': correctAnswer,

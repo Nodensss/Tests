@@ -130,6 +130,7 @@ class _HomeShellState extends State<HomeShell> {
     AppState appState,
   ) async {
     var provider = appState.aiProvider;
+    var useInternetSearch = appState.aiUseInternetSearch;
     final openRouterController = TextEditingController(
       text: appState.openRouterApiKey,
     );
@@ -200,7 +201,21 @@ class _HomeShellState extends State<HomeShell> {
                   ),
                   const SizedBox(height: 4),
                   const Text(
-                    'Используйте плейсхолдеры: {question} и {correct_answer}.',
+                    'Используйте плейсхолдеры: {question}, {correct_answer}, {internet_context}.',
+                  ),
+                  const SizedBox(height: 8),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    value: useInternetSearch,
+                    onChanged: (value) {
+                      setDialogState(() {
+                        useInternetSearch = value;
+                      });
+                    },
+                    title: const Text('Использовать интернет-поиск для AI'),
+                    subtitle: const Text(
+                      'Перед объяснением добавляется контекст из веб-источников.',
+                    ),
                   ),
                   const SizedBox(height: 8),
                   TextField(
@@ -261,6 +276,7 @@ class _HomeShellState extends State<HomeShell> {
                   openRouterKey: openRouterController.text,
                   explanationPrompt: explanationPromptController.text,
                   memoryTipPrompt: memoryTipPromptController.text,
+                  useInternetSearch: useInternetSearch,
                 );
                 if (!context.mounted) {
                   return;

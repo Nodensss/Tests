@@ -10,6 +10,7 @@ import '../services/database_service.dart';
 import '../services/excel_parser_service.dart';
 import '../services/openrouter_service.dart';
 import '../services/quiz_engine.dart';
+import '../services/web_search_service.dart';
 
 class _BusyProgressMarker {
   const _BusyProgressMarker();
@@ -60,10 +61,12 @@ class StudySessionState {
     this.lastTimeSeconds = 0,
     Map<int, String>? explanations,
     Map<int, String>? memoryTips,
+    Map<int, String>? internetContexts,
     this.finalized = false,
   }) : startedAtCurrent = startedAtCurrent ?? DateTime.now(),
        explanations = explanations ?? <int, String>{},
-       memoryTips = memoryTips ?? <int, String>{};
+       memoryTips = memoryTips ?? <int, String>{},
+       internetContexts = internetContexts ?? <int, String>{};
 
   final StudyMode mode;
   final String sessionId;
@@ -77,6 +80,7 @@ class StudySessionState {
   double lastTimeSeconds;
   final Map<int, String> explanations;
   final Map<int, String> memoryTips;
+  final Map<int, String> internetContexts;
   bool finalized;
 
   bool get isCompleted => currentIndex >= questions.length;
@@ -103,6 +107,7 @@ class AppState extends ChangeNotifier {
   final DatabaseService databaseService;
   final ExcelParserService excelParserService;
   final CompetencyService competencyService = CompetencyService();
+  final WebSearchService webSearchService = const WebSearchService();
   late final QuizEngine quizEngine;
   late OpenRouterService openRouterService;
   late OpenRouterService localOnlyService;
@@ -123,6 +128,7 @@ class AppState extends ChangeNotifier {
       OpenRouterService.defaultExplanationUserPromptTemplate;
   String memoryTipPromptTemplate =
       OpenRouterService.defaultMemoryTipUserPromptTemplate;
+  bool aiUseInternetSearch = true;
   AiProvider aiProvider = AiProvider.openrouter;
   List<String> categories = <String>['Все'];
   final List<String> competencyCatalog = CompetencyService.allCompetencies;
@@ -154,6 +160,7 @@ class AppState extends ChangeNotifier {
     required String openRouterKey,
     required String explanationPrompt,
     required String memoryTipPrompt,
+    required bool useInternetSearch,
   }) async {
     aiProvider = provider;
     openRouterApiKey = openRouterKey.trim();
@@ -163,6 +170,7 @@ class AppState extends ChangeNotifier {
     memoryTipPromptTemplate = memoryTipPrompt.trim().isEmpty
         ? OpenRouterService.defaultMemoryTipUserPromptTemplate
         : memoryTipPrompt.trim();
+    aiUseInternetSearch = useInternetSearch;
 
     openRouterService = OpenRouterService(
       databaseService: databaseService,
@@ -174,9 +182,11 @@ class AppState extends ChangeNotifier {
     );
     studySession?.explanations.clear();
     studySession?.memoryTips.clear();
+    studySession?.internetContexts.clear();
     final payload = jsonEncode(<String, String>{
       'explanation_prompt': explanationPromptTemplate,
       'memory_tip_prompt': memoryTipPromptTemplate,
+      'use_internet_search': aiUseInternetSearch ? '1' : '0',
     });
     await databaseService.setCache(
       cacheKey: 'settings:ai_prompts',
@@ -200,12 +210,16 @@ class AppState extends ChangeNotifier {
           .toString()
           .trim();
       final memory = (decoded['memory_tip_prompt'] ?? '').toString().trim();
+      final useInternetSearch = (decoded['use_internet_search'] ?? '1')
+          .toString()
+          .trim();
       if (explanation.isNotEmpty) {
         explanationPromptTemplate = explanation;
       }
       if (memory.isNotEmpty) {
         memoryTipPromptTemplate = memory;
       }
+      aiUseInternetSearch = useInternetSearch != '0';
     } catch (_) {}
   }
 
@@ -825,6 +839,10 @@ class AppState extends ChangeNotifier {
       return existing;
     }
     late final String explanation;
+    final internetContext = await _resolveInternetContext(
+      session: session,
+      question: question,
+    );
     switch (aiProvider) {
       case AiProvider.openrouter:
         explanation = await openRouterService.generateExplanation(
@@ -832,6 +850,7 @@ class AppState extends ChangeNotifier {
           question: question.questionText,
           correctAnswer: question.correctAnswer,
           userPromptTemplate: explanationPromptTemplate,
+          internetContext: internetContext,
         );
         break;
       case AiProvider.local:
@@ -840,6 +859,7 @@ class AppState extends ChangeNotifier {
           question: question.questionText,
           correctAnswer: question.correctAnswer,
           userPromptTemplate: explanationPromptTemplate,
+          internetContext: internetContext,
         );
         break;
     }
@@ -862,6 +882,10 @@ class AppState extends ChangeNotifier {
       return existing;
     }
     late final String memoryTip;
+    final internetContext = await _resolveInternetContext(
+      session: session,
+      question: question,
+    );
     switch (aiProvider) {
       case AiProvider.openrouter:
         memoryTip = await openRouterService.generateMemoryTip(
@@ -869,6 +893,7 @@ class AppState extends ChangeNotifier {
           question: question.questionText,
           correctAnswer: question.correctAnswer,
           userPromptTemplate: memoryTipPromptTemplate,
+          internetContext: internetContext,
         );
         break;
       case AiProvider.local:
@@ -877,12 +902,41 @@ class AppState extends ChangeNotifier {
           question: question.questionText,
           correctAnswer: question.correctAnswer,
           userPromptTemplate: memoryTipPromptTemplate,
+          internetContext: internetContext,
         );
         break;
     }
     session.memoryTips[question.id!] = memoryTip;
     notifyListeners();
     return memoryTip;
+  }
+
+  Future<String> _resolveInternetContext({
+    required StudySessionState session,
+    required Question question,
+  }) async {
+    if (!aiUseInternetSearch) {
+      return '';
+    }
+    final questionId = question.id;
+    if (questionId == null) {
+      return '';
+    }
+    final cached = session.internetContexts[questionId];
+    if (cached != null) {
+      return cached;
+    }
+
+    final query = <String>[
+      question.questionText.trim(),
+      question.correctAnswer.trim(),
+      (question.category ?? '').trim(),
+    ].where((item) => item.isNotEmpty).join(' ');
+
+    final results = await webSearchService.search(query, limit: 5);
+    final contextBlock = webSearchService.buildContextBlock(results);
+    session.internetContexts[questionId] = contextBlock;
+    return contextBlock;
   }
 
   Future<bool?> toggleCurrentQuestionHard() async {
