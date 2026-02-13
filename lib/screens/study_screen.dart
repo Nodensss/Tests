@@ -395,6 +395,21 @@ class _StudyScreenState extends State<StudyScreen> {
                     spacing: 8,
                     runSpacing: 8,
                     children: <Widget>[
+                      if (session.mode != StudyMode.flashcards)
+                        OutlinedButton.icon(
+                          onPressed: session.currentIndex > 0
+                              ? () {
+                                  appState.previousStudyQuestion();
+                                  setState(() {
+                                    _syncLocalFromSession(
+                                      appState.studySession,
+                                    );
+                                  });
+                                }
+                              : null,
+                          icon: const Icon(Icons.arrow_back),
+                          label: const Text('Назад'),
+                        ),
                       if (!widget.immersiveMode)
                         OutlinedButton.icon(
                           onPressed: () => _openFullscreenQuiz(context),
@@ -475,6 +490,19 @@ class _StudyScreenState extends State<StudyScreen> {
   Widget _buildQuizLike(BuildContext context, AppState appState) {
     final session = appState.studySession!;
     final question = session.currentQuestion;
+    final index = session.currentIndex;
+    final answeredCurrent = session.quizSelectedOptions.containsKey(index);
+    final selectedFromHistory = session.quizSelectedOptions[index];
+    final selectedOption = answeredCurrent
+        ? selectedFromHistory
+        : _selectedOption;
+    final currentIsCorrect = answeredCurrent
+        ? (session.quizIsCorrectByIndex[index] ?? false)
+        : session.lastIsCorrect;
+    final currentTime = answeredCurrent
+        ? (session.quizTimeSecondsByIndex[index] ?? session.lastTimeSeconds)
+        : session.lastTimeSeconds;
+
     final cacheKey = '${question.id ?? session.currentIndex}';
     final options = _optionsCache.putIfAbsent(
       cacheKey,
@@ -490,39 +518,43 @@ class _StudyScreenState extends State<StudyScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            if (!session.answeredCurrent) ...<Widget>[
+            Column(
+              children: options
+                  .map(
+                    (option) => _buildAnswerOptionTile(
+                      context: context,
+                      text: option,
+                      selected: selectedOption == option,
+                      answered: answeredCurrent,
+                      isCorrectOption: option == question.correctAnswer,
+                      isChosenOption: selectedOption == option,
+                      onTap: answeredCurrent
+                          ? null
+                          : () {
+                              setState(() {
+                                _selectedOption = option;
+                              });
+                            },
+                    ),
+                  )
+                  .toList(growable: false),
+            ),
+            if (!answeredCurrent) ...<Widget>[
               _buildSubmitAnswerButton(appState),
-              const SizedBox(height: 8),
-              Column(
-                children: options
-                    .map(
-                      (option) => _buildAnswerOptionTile(
-                        context: context,
-                        text: option,
-                        selected: _selectedOption == option,
-                        onTap: () {
-                          setState(() {
-                            _selectedOption = option;
-                          });
-                        },
-                      ),
-                    )
-                    .toList(growable: false),
-              ),
               const SizedBox(height: 8),
               _buildSubmitAnswerButton(appState),
             ] else ...<Widget>[
               Text(
-                session.lastIsCorrect ? '✅ Верно' : '❌ Неверно',
+                currentIsCorrect ? '✅ Верно' : '❌ Неверно',
                 style: TextStyle(
-                  color: session.lastIsCorrect
+                  color: currentIsCorrect
                       ? Colors.greenAccent
                       : Colors.redAccent,
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              if (!session.lastIsCorrect) ...<Widget>[
+              if (!currentIsCorrect) ...<Widget>[
                 const SizedBox(height: 6),
                 const Text('Правильный ответ:'),
                 const SizedBox(height: 4),
@@ -543,7 +575,7 @@ class _StudyScreenState extends State<StudyScreen> {
                   ),
               ],
               const SizedBox(height: 4),
-              Text('Время: ${session.lastTimeSeconds.toStringAsFixed(1)} сек'),
+              Text('Время: ${currentTime.toStringAsFixed(1)} сек'),
               const SizedBox(height: 10),
               Wrap(
                 spacing: 8,
@@ -577,12 +609,10 @@ class _StudyScreenState extends State<StudyScreen> {
                   ),
                   FilledButton(
                     onPressed: () {
-                      setState(() {
-                        _selectedOption = null;
-                        _explanation = null;
-                        _memoryTip = null;
-                      });
                       appState.nextStudyQuestion();
+                      setState(() {
+                        _syncLocalFromSession(appState.studySession);
+                      });
                     },
                     child: const Text('Следующий'),
                   ),
@@ -892,15 +922,27 @@ class _StudyScreenState extends State<StudyScreen> {
     required BuildContext context,
     required String text,
     required bool selected,
-    required VoidCallback onTap,
+    required bool answered,
+    required bool isCorrectOption,
+    required bool isChosenOption,
+    required VoidCallback? onTap,
   }) {
     final theme = Theme.of(context);
-    final borderColor = selected
-        ? theme.colorScheme.secondary
-        : Colors.white.withValues(alpha: 0.28);
-    final background = selected
-        ? theme.colorScheme.secondary.withValues(alpha: 0.18)
-        : Colors.transparent;
+    Color borderColor = Colors.white.withValues(alpha: 0.28);
+    Color background = Colors.transparent;
+    if (answered) {
+      if (isCorrectOption) {
+        borderColor = Colors.greenAccent;
+        background = Colors.greenAccent.withValues(alpha: 0.18);
+      } else if (isChosenOption) {
+        borderColor = Colors.redAccent;
+        background = Colors.redAccent.withValues(alpha: 0.18);
+      }
+    } else if (selected) {
+      borderColor = theme.colorScheme.secondary;
+      background = theme.colorScheme.secondary.withValues(alpha: 0.18);
+    }
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: InkWell(
@@ -912,7 +954,10 @@ class _StudyScreenState extends State<StudyScreen> {
           decoration: BoxDecoration(
             color: background,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: borderColor, width: selected ? 2 : 1),
+            border: Border.all(
+              color: borderColor,
+              width: selected || answered ? 2 : 1,
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1022,18 +1067,39 @@ class _StudyScreenState extends State<StudyScreen> {
   }
 
   Widget _buildSubmitAnswerButton(AppState appState) {
+    final session = appState.studySession;
+    final answeredCurrent =
+        session != null &&
+        !session.isCompleted &&
+        session.quizSelectedOptions.containsKey(session.currentIndex);
     return FilledButton(
-      onPressed: _selectedOption == null
+      onPressed: answeredCurrent || _selectedOption == null
           ? null
           : () async {
               await appState.answerQuizOption(_selectedOption!);
               if (!mounted) {
                 return;
               }
-              setState(() {});
+              setState(() {
+                _syncLocalFromSession(appState.studySession);
+              });
             },
       child: const Text('Ответить'),
     );
+  }
+
+  void _syncLocalFromSession(StudySessionState? session) {
+    if (session == null || session.isCompleted) {
+      _selectedOption = null;
+      _explanation = null;
+      _memoryTip = null;
+      return;
+    }
+    final idx = session.currentIndex;
+    final questionId = session.currentQuestion.id;
+    _selectedOption = session.quizSelectedOptions[idx];
+    _explanation = questionId == null ? null : session.explanations[questionId];
+    _memoryTip = questionId == null ? null : session.memoryTips[questionId];
   }
 
   Future<void> _confirmResetSession(

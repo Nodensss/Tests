@@ -62,11 +62,17 @@ class StudySessionState {
     Map<int, String>? explanations,
     Map<int, String>? memoryTips,
     Map<int, String>? internetContexts,
+    Map<int, String>? quizSelectedOptions,
+    Map<int, bool>? quizIsCorrectByIndex,
+    Map<int, double>? quizTimeSecondsByIndex,
     this.finalized = false,
   }) : startedAtCurrent = startedAtCurrent ?? DateTime.now(),
        explanations = explanations ?? <int, String>{},
        memoryTips = memoryTips ?? <int, String>{},
-       internetContexts = internetContexts ?? <int, String>{};
+       internetContexts = internetContexts ?? <int, String>{},
+       quizSelectedOptions = quizSelectedOptions ?? <int, String>{},
+       quizIsCorrectByIndex = quizIsCorrectByIndex ?? <int, bool>{},
+       quizTimeSecondsByIndex = quizTimeSecondsByIndex ?? <int, double>{};
 
   final StudyMode mode;
   final String sessionId;
@@ -81,6 +87,9 @@ class StudySessionState {
   final Map<int, String> explanations;
   final Map<int, String> memoryTips;
   final Map<int, String> internetContexts;
+  final Map<int, String> quizSelectedOptions;
+  final Map<int, bool> quizIsCorrectByIndex;
+  final Map<int, double> quizTimeSecondsByIndex;
   bool finalized;
 
   bool get isCompleted => currentIndex >= questions.length;
@@ -728,7 +737,13 @@ class AppState extends ChangeNotifier {
 
   Future<void> answerQuizOption(String selectedOption) async {
     final session = studySession;
-    if (session == null || session.isCompleted || session.answeredCurrent) {
+    if (session == null || session.isCompleted) {
+      return;
+    }
+    final currentIndex = session.currentIndex;
+    if (session.quizSelectedOptions.containsKey(currentIndex)) {
+      session.answeredCurrent = true;
+      notifyListeners();
       return;
     }
     final question = session.currentQuestion;
@@ -749,6 +764,9 @@ class AppState extends ChangeNotifier {
       quality: quality,
     );
 
+    session.quizSelectedOptions[currentIndex] = selectedOption;
+    session.quizIsCorrectByIndex[currentIndex] = isCorrect;
+    session.quizTimeSecondsByIndex[currentIndex] = timeSpentSeconds;
     session.answeredCurrent = true;
     session.lastIsCorrect = isCorrect;
     session.lastTimeSeconds = timeSpentSeconds;
@@ -802,12 +820,44 @@ class AppState extends ChangeNotifier {
       return;
     }
     session.currentIndex += 1;
-    session.answeredCurrent = false;
-    session.showAnswer = false;
-    session.lastIsCorrect = false;
-    session.lastTimeSeconds = 0;
-    session.startedAtCurrent = DateTime.now();
+    _syncCurrentQuestionFlags(session);
+    session.showAnswer = session.answeredCurrent;
+    if (!session.answeredCurrent) {
+      session.showAnswer = false;
+    }
     notifyListeners();
+  }
+
+  void previousStudyQuestion() {
+    final session = studySession;
+    if (session == null || session.currentIndex <= 0) {
+      return;
+    }
+    session.currentIndex -= 1;
+    _syncCurrentQuestionFlags(session);
+    session.showAnswer = session.answeredCurrent;
+    notifyListeners();
+  }
+
+  void _syncCurrentQuestionFlags(StudySessionState session) {
+    if (session.isCompleted) {
+      session.answeredCurrent = false;
+      session.lastIsCorrect = false;
+      session.lastTimeSeconds = 0;
+      return;
+    }
+    final idx = session.currentIndex;
+    final selected = session.quizSelectedOptions[idx];
+    if (selected == null) {
+      session.answeredCurrent = false;
+      session.lastIsCorrect = false;
+      session.lastTimeSeconds = 0;
+      session.startedAtCurrent = DateTime.now();
+      return;
+    }
+    session.answeredCurrent = true;
+    session.lastIsCorrect = session.quizIsCorrectByIndex[idx] ?? false;
+    session.lastTimeSeconds = session.quizTimeSecondsByIndex[idx] ?? 0;
   }
 
   Future<void> finalizeSessionIfNeeded() async {
