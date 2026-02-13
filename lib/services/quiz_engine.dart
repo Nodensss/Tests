@@ -3,7 +3,14 @@ import 'dart:math';
 import '../models/question.dart';
 import 'database_service.dart';
 
-enum StudyMode { quiz, flashcards, review, categoryDrill, weakSpots }
+enum StudyMode {
+  quiz,
+  flashcards,
+  review,
+  categoryDrill,
+  weakSpots,
+  hardQuestions,
+}
 
 class QuizEngine {
   QuizEngine({
@@ -117,6 +124,13 @@ class QuizEngine {
         final sorted = List<Question>.from(byCategory)
           ..sort((a, b) => a.difficulty.compareTo(b.difficulty));
         return sorted.take(limit).toList(growable: false);
+      case StudyMode.hardQuestions:
+        return databaseService.getRandomQuestions(
+          limit: limit,
+          category: category,
+          difficulty: difficulty,
+          onlyHard: true,
+        );
       case StudyMode.flashcards:
       case StudyMode.quiz:
         return databaseService.getRandomQuestions(
@@ -138,6 +152,7 @@ class QuizEngine {
       StudyMode.review => 'review',
       StudyMode.categoryDrill => 'category_drill',
       StudyMode.weakSpots => 'weak_spots',
+      StudyMode.hardQuestions => 'hard_questions',
     };
     return databaseService.startSession(
       sessionType: modeName,

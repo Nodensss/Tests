@@ -6,6 +6,7 @@ class Question {
     required this.questionText,
     required this.correctAnswer,
     required this.wrongAnswers,
+    this.isHard = false,
     this.competency,
     this.category,
     this.subcategory,
@@ -20,6 +21,7 @@ class Question {
   final String questionText;
   final String correctAnswer;
   final List<String> wrongAnswers;
+  final bool isHard;
   final String? competency;
   final String? category;
   final String? subcategory;
@@ -34,6 +36,7 @@ class Question {
     String? questionText,
     String? correctAnswer,
     List<String>? wrongAnswers,
+    bool? isHard,
     String? competency,
     String? category,
     String? subcategory,
@@ -48,6 +51,7 @@ class Question {
       questionText: questionText ?? this.questionText,
       correctAnswer: correctAnswer ?? this.correctAnswer,
       wrongAnswers: wrongAnswers ?? this.wrongAnswers,
+      isHard: isHard ?? this.isHard,
       competency: competency ?? this.competency,
       category: category ?? this.category,
       subcategory: subcategory ?? this.subcategory,
@@ -71,6 +75,7 @@ class Question {
       'wrong_answer_1': normalizedWrongAnswers[0],
       'wrong_answer_2': normalizedWrongAnswers[1],
       'wrong_answer_3': normalizedWrongAnswers[2],
+      'is_hard': isHard ? 1 : 0,
       'competency': competency,
       'category': category,
       'subcategory': subcategory,
@@ -89,8 +94,9 @@ class Question {
       try {
         final decoded = jsonDecode(rawKeywords);
         if (decoded is List) {
-          parsedKeywords =
-              decoded.map((item) => item.toString()).toList(growable: false);
+          parsedKeywords = decoded
+              .map((item) => item.toString())
+              .toList(growable: false);
         } else {
           parsedKeywords = const <String>[];
         }
@@ -110,6 +116,9 @@ class Question {
         (map['wrong_answer_2'] ?? '').toString(),
         (map['wrong_answer_3'] ?? '').toString(),
       ],
+      isHard: map['is_hard'] == null
+          ? false
+          : ((map['is_hard'] as num?)?.toInt() ?? 0) == 1,
       competency: map['competency']?.toString(),
       category: map['category']?.toString(),
       subcategory: map['subcategory']?.toString(),

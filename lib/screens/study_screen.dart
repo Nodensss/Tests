@@ -27,6 +27,7 @@ class _StudyScreenState extends State<StudyScreen> {
   final Map<String, List<String>> _optionsCache = <String, List<String>>{};
   String? _selectedOption;
   String? _explanation;
+  String? _memoryTip;
 
   @override
   void initState() {
@@ -111,6 +112,10 @@ class _StudyScreenState extends State<StudyScreen> {
                     DropdownMenuItem(
                       value: StudyMode.weakSpots,
                       child: Text('Weak Spots'),
+                    ),
+                    DropdownMenuItem(
+                      value: StudyMode.hardQuestions,
+                      child: Text('Hard Questions'),
                     ),
                   ],
                   onChanged: (value) {
@@ -250,6 +255,7 @@ class _StudyScreenState extends State<StudyScreen> {
                             _selectedOption = null;
                             _optionsCache.clear();
                             _explanation = null;
+                            _memoryTip = null;
                           }
                         },
                   icon: const Icon(Icons.play_arrow),
@@ -344,10 +350,28 @@ class _StudyScreenState extends State<StudyScreen> {
               children: <Widget>[
                 Align(
                   alignment: Alignment.centerRight,
-                  child: OutlinedButton.icon(
-                    onPressed: () => _confirmResetSession(context, appState),
-                    icon: const Icon(Icons.restart_alt),
-                    label: const Text('Сбросить тест'),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: <Widget>[
+                      OutlinedButton.icon(
+                        onPressed: () => _toggleCurrentHardQuestion(appState),
+                        icon: Icon(
+                          question.isHard
+                              ? Icons.bookmark_remove_outlined
+                              : Icons.bookmark_add_outlined,
+                        ),
+                        label: Text(
+                          question.isHard ? 'Убрать из сложных' : 'В сложные',
+                        ),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () =>
+                            _confirmResetSession(context, appState),
+                        icon: const Icon(Icons.restart_alt),
+                        label: const Text('Сбросить тест'),
+                      ),
+                    ],
                   ),
                 ),
                 LinearProgressIndicator(value: progress),
@@ -373,6 +397,7 @@ class _StudyScreenState extends State<StudyScreen> {
                       Chip(label: Text(question.competency!)),
                     Chip(label: Text(question.category ?? 'Без категории')),
                     Chip(label: Text('Difficulty ${question.difficulty}')),
+                    if (question.isHard) const Chip(label: Text('Сложный')),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -493,11 +518,25 @@ class _StudyScreenState extends State<StudyScreen> {
                     },
                     child: const Text('Объяснить (AI)'),
                   ),
+                  FilledButton.tonal(
+                    onPressed: () async {
+                      final tip = await appState
+                          .buildMemoryTipForCurrentQuestion();
+                      if (!mounted) {
+                        return;
+                      }
+                      setState(() {
+                        _memoryTip = tip;
+                      });
+                    },
+                    child: const Text('Как запомнить (AI)'),
+                  ),
                   FilledButton(
                     onPressed: () {
                       setState(() {
                         _selectedOption = null;
                         _explanation = null;
+                        _memoryTip = null;
                       });
                       appState.nextStudyQuestion();
                     },
@@ -515,6 +554,18 @@ class _StudyScreenState extends State<StudyScreen> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: SelectableText(_explanation!),
+                ),
+              ],
+              if ((_memoryTip ?? '').isNotEmpty) ...<Widget>[
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.teal.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: SelectableText(_memoryTip!),
                 ),
               ],
             ],
@@ -583,11 +634,47 @@ class _StudyScreenState extends State<StudyScreen> {
                 Text(
                   session.lastIsCorrect ? '✅ Засчитано' : '🟠 Повторить позже',
                 ),
-                const SizedBox(height: 8),
-                FilledButton(
-                  onPressed: appState.nextStudyQuestion,
-                  child: const Text('Следующая карточка'),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: <Widget>[
+                    FilledButton.tonal(
+                      onPressed: () async {
+                        final tip = await appState
+                            .buildMemoryTipForCurrentQuestion();
+                        if (!mounted) {
+                          return;
+                        }
+                        setState(() {
+                          _memoryTip = tip;
+                        });
+                      },
+                      child: const Text('Как запомнить (AI)'),
+                    ),
+                    FilledButton(
+                      onPressed: () {
+                        setState(() {
+                          _memoryTip = null;
+                        });
+                        appState.nextStudyQuestion();
+                      },
+                      child: const Text('Следующая карточка'),
+                    ),
+                  ],
                 ),
+                if ((_memoryTip ?? '').isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.teal.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: SelectableText(_memoryTip!),
+                  ),
+                ],
               ],
             ],
           ],
@@ -707,6 +794,7 @@ class _StudyScreenState extends State<StudyScreen> {
     setState(() {
       _selectedOption = null;
       _explanation = null;
+      _memoryTip = null;
       _optionsCache.clear();
     });
     appState.stopSession();
@@ -735,6 +823,19 @@ class _StudyScreenState extends State<StudyScreen> {
         const SnackBar(content: Text('Не удалось открыть браузер')),
       );
     }
+  }
+
+  Future<void> _toggleCurrentHardQuestion(AppState appState) async {
+    final result = await appState.toggleCurrentQuestionHard();
+    if (!mounted || result == null) {
+      return;
+    }
+    final message = result
+        ? 'Вопрос добавлен в базу сложных'
+        : 'Вопрос убран из базы сложных';
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Widget _buildAnswerOptionTile({

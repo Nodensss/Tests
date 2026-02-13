@@ -42,7 +42,7 @@ class DatabaseService {
     final dbPath = p.join(basePath, 'quiz_trainer_flutter.db');
     return openDatabase(
       dbPath,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE questions (
@@ -52,6 +52,7 @@ class DatabaseService {
             wrong_answer_1 TEXT,
             wrong_answer_2 TEXT,
             wrong_answer_3 TEXT,
+            is_hard INTEGER DEFAULT 0,
             competency TEXT,
             category TEXT,
             subcategory TEXT,
@@ -123,6 +124,11 @@ class DatabaseService {
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
           await db.execute('ALTER TABLE questions ADD COLUMN competency TEXT;');
+        }
+        if (oldVersion < 3) {
+          await db.execute(
+            'ALTER TABLE questions ADD COLUMN is_hard INTEGER DEFAULT 0;',
+          );
         }
       },
     );
@@ -243,8 +249,8 @@ class DatabaseService {
           '''
           INSERT OR IGNORE INTO questions (
             question_text, correct_answer, wrong_answer_1, wrong_answer_2, wrong_answer_3,
-            competency, category, subcategory, difficulty, keywords, explanation, source_file, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            is_hard, competency, category, subcategory, difficulty, keywords, explanation, source_file, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ''',
           <Object?>[
             normalizedQuestionText,
@@ -252,6 +258,7 @@ class DatabaseService {
             wrong1,
             wrong2,
             wrong3,
+            question.isHard ? 1 : 0,
             competency.isEmpty ? null : competency,
             question.category,
             question.subcategory,
@@ -283,6 +290,7 @@ class DatabaseService {
           '''
           UPDATE questions
           SET
+            is_hard = CASE WHEN ? = 1 THEN 1 ELSE is_hard END,
             competency = CASE WHEN ? = '' THEN competency ELSE ? END,
             category = ?,
             subcategory = ?,
@@ -297,6 +305,7 @@ class DatabaseService {
             AND COALESCE(wrong_answer_3, '') = ?
           ''',
           <Object?>[
+            question.isHard ? 1 : 0,
             competency,
             competency,
             question.category,
@@ -357,11 +366,15 @@ class DatabaseService {
     String? category,
     int? difficulty,
     String? searchQuery,
+    bool onlyHard = false,
   }) async {
     final db = await database;
     final where = <String>['1 = 1'];
     final args = <Object?>[];
 
+    if (onlyHard) {
+      where.add('COALESCE(is_hard, 0) = 1');
+    }
     if (category != null &&
         category.trim().isNotEmpty &&
         category.trim() != 'Все') {
@@ -402,12 +415,16 @@ class DatabaseService {
     String? category,
     int? difficulty,
     String? searchQuery,
+    bool onlyHard = false,
     int limit = 1000,
   }) async {
     final db = await database;
     final where = <String>['1 = 1'];
     final args = <Object?>[];
 
+    if (onlyHard) {
+      where.add('COALESCE(is_hard, 0) = 1');
+    }
     if (category != null &&
         category.trim().isNotEmpty &&
         category.trim() != 'Все') {
@@ -454,10 +471,12 @@ class DatabaseService {
     int limit = 20,
     String? category,
     int? difficulty,
+    bool onlyHard = false,
   }) async {
     final rows = await getQuestions(
       category: category,
       difficulty: difficulty,
+      onlyHard: onlyHard,
       limit: 5000,
     );
     rows.shuffle(Random());
@@ -824,6 +843,19 @@ class DatabaseService {
     await db.update(
       'questions',
       <String, Object?>{'competency': competency},
+      where: 'id = ?',
+      whereArgs: <Object?>[questionId],
+    );
+  }
+
+  Future<void> setQuestionHardStatus({
+    required int questionId,
+    required bool isHard,
+  }) async {
+    final db = await database;
+    await db.update(
+      'questions',
+      <String, Object?>{'is_hard': isHard ? 1 : 0},
       where: 'id = ?',
       whereArgs: <Object?>[questionId],
     );

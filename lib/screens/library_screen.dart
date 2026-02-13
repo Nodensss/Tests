@@ -19,6 +19,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _category = 'Все';
   int? _difficulty;
+  bool _onlyHard = false;
   List<Question> _questions = <Question>[];
   bool _loading = false;
 
@@ -80,8 +81,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         ),
                         items: categories
                             .map(
-                              (c) =>
-                                  DropdownMenuItem<String>(value: c, child: Text(c)),
+                              (c) => DropdownMenuItem<String>(
+                                value: c,
+                                child: Text(c),
+                              ),
                             )
                             .toList(growable: false),
                         onChanged: (value) {
@@ -118,6 +121,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 4),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  value: _onlyHard,
+                  onChanged: (value) {
+                    setState(() {
+                      _onlyHard = value;
+                    });
+                  },
+                  title: const Text('Только сложные вопросы'),
                 ),
                 const SizedBox(height: 8),
                 Wrap(
@@ -187,6 +201,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       category: _category,
       difficulty: _difficulty,
       searchQuery: _searchController.text.trim(),
+      onlyHard: _onlyHard,
     );
     if (!mounted) {
       return;
@@ -198,13 +213,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _showEditDialog(Question question) async {
-    final competencyController =
-        TextEditingController(text: question.competency ?? '');
-    final categoryController =
-        TextEditingController(text: question.category ?? 'Без категории');
-    final subcategoryController =
-        TextEditingController(text: question.subcategory ?? '');
+    final competencyController = TextEditingController(
+      text: question.competency ?? '',
+    );
+    final categoryController = TextEditingController(
+      text: question.category ?? 'Без категории',
+    );
+    final subcategoryController = TextEditingController(
+      text: question.subcategory ?? '',
+    );
     int difficulty = question.difficulty;
+    bool isHard = question.isHard;
 
     await showDialog<void>(
       context: context,
@@ -260,6 +279,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   });
                 },
               ),
+              const SizedBox(height: 8),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: isHard,
+                onChanged: (value) {
+                  if (value == null) {
+                    return;
+                  }
+                  setDialogState(() {
+                    isHard = value;
+                  });
+                },
+                title: const Text('Сложный вопрос'),
+              ),
             ],
           ),
           actions: <Widget>[
@@ -284,6 +317,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       : competencyController.text.trim(),
                   subcategory: subcategoryController.text.trim(),
                   difficulty: difficulty,
+                );
+                await appState.setQuestionHardStatus(
+                  questionId: question.id!,
+                  isHard: isHard,
                 );
                 if (!mounted) {
                   return;
@@ -345,6 +382,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         'subcategory',
         'difficulty',
         'source_file',
+        'is_hard',
       ],
       ..._questions.map(
         (q) => <String>[
@@ -359,15 +397,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
           q.subcategory ?? '',
           '${q.difficulty}',
           q.sourceFile ?? '',
+          q.isHard ? '1' : '0',
         ],
       ),
     ];
 
     final csv = rows
         .map(
-          (row) => row
-              .map((value) => '"${value.replaceAll('"', '""')}"')
-              .join(','),
+          (row) =>
+              row.map((value) => '"${value.replaceAll('"', '""')}"').join(','),
         )
         .join('\n');
 
@@ -376,7 +414,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Экспорт на web пока не поддержан в этом MVP.')),
+        const SnackBar(
+          content: Text('Экспорт на web пока не поддержан в этом MVP.'),
+        ),
       );
       return;
     }
@@ -392,9 +432,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Файл сохранён: $path')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Файл сохранён: $path')));
   }
 }
 
@@ -425,6 +465,7 @@ class _QuestionsTable extends StatelessWidget {
           DataColumn(label: Text('Competency')),
           DataColumn(label: Text('Category')),
           DataColumn(label: Text('Difficulty')),
+          DataColumn(label: Text('Hard')),
           DataColumn(label: Text('Actions')),
         ],
         rows: questions
@@ -455,6 +496,12 @@ class _QuestionsTable extends StatelessWidget {
                   ),
                   DataCell(Text(q.category ?? '—')),
                   DataCell(Text('${q.difficulty}')),
+                  DataCell(
+                    Icon(
+                      q.isHard ? Icons.bookmark : Icons.bookmark_border,
+                      size: 18,
+                    ),
+                  ),
                   DataCell(
                     Wrap(
                       spacing: 6,

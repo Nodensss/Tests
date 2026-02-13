@@ -23,6 +23,7 @@ class OpenRouterService {
   final int maxRetries;
   static const String _categorizerVersion = 'v5';
   static const String _explanationVersion = 'v2';
+  static const String _memoryTipVersion = 'v1';
   static const String _studyPlanVersion = 'v2';
   final CompetencyService _competencyService = CompetencyService();
   String? _lastError;
@@ -755,5 +756,60 @@ ${jsonEncode(stats)}
       payload: plan,
     );
     return plan;
+  }
+
+  Future<String> generateMemoryTip({
+    required int questionId,
+    required String question,
+    required String correctAnswer,
+  }) async {
+    final cacheKey = _cacheKey('memory_tip_openrouter', <String, Object>{
+      'version': _memoryTipVersion,
+      'model': modelName,
+      'question_id': questionId,
+      'question': question,
+      'answer': correctAnswer,
+    });
+    final cached = await databaseService.getCache(cacheKey);
+    if (cached != null &&
+        cached.trim().isNotEmpty &&
+        !_isFallbackPayload(cached)) {
+      return cached;
+    }
+
+    String tip = '';
+    if (enabled) {
+      tip =
+          (await _request('Ты тренер по запоминанию технических вопросов.', '''
+Сделай краткую памятку, чтобы человек запомнил правильный ответ.
+Формат:
+1) Ключевая идея (1-2 предложения)
+2) Ассоциация/мнемоника (1 короткая фраза)
+3) Мини-проверка себя (1 вопрос для самопроверки)
+
+Вопрос: $question
+Правильный ответ: $correctAnswer
+''', temperature: 0.35)) ??
+          '';
+    }
+
+    if (tip.trim().isEmpty) {
+      if (!enabled) {
+        tip =
+            'Ключ: выделите в вопросе опорное слово и свяжите его с ответом "$correctAnswer". Добавьте OpenRouter API key для AI-памятки.';
+      } else {
+        final reason = (lastError ?? '').trim();
+        tip = reason.isEmpty
+            ? 'Не удалось получить памятку. Повторите запрос позже.'
+            : 'Ошибка OpenRouter: $reason';
+      }
+    }
+
+    await databaseService.setCache(
+      cacheKey: cacheKey,
+      cacheType: 'memory_tip_openrouter',
+      payload: tip,
+    );
+    return tip;
   }
 }

@@ -57,9 +57,11 @@ class StudySessionState {
     this.lastIsCorrect = false,
     this.lastTimeSeconds = 0,
     Map<int, String>? explanations,
+    Map<int, String>? memoryTips,
     this.finalized = false,
   }) : startedAtCurrent = startedAtCurrent ?? DateTime.now(),
-       explanations = explanations ?? <int, String>{};
+       explanations = explanations ?? <int, String>{},
+       memoryTips = memoryTips ?? <int, String>{};
 
   final StudyMode mode;
   final String sessionId;
@@ -72,6 +74,7 @@ class StudySessionState {
   bool lastIsCorrect;
   double lastTimeSeconds;
   final Map<int, String> explanations;
+  final Map<int, String> memoryTips;
   bool finalized;
 
   bool get isCompleted => currentIndex >= questions.length;
@@ -155,6 +158,7 @@ class AppState extends ChangeNotifier {
       apiKey: '',
     );
     studySession?.explanations.clear();
+    studySession?.memoryTips.clear();
     notifyListeners();
   }
 
@@ -181,6 +185,12 @@ class AppState extends ChangeNotifier {
         return databaseService.countQuestions(
           category: category,
           difficulty: difficulty,
+        );
+      case StudyMode.hardQuestions:
+        return databaseService.countQuestions(
+          category: category,
+          difficulty: difficulty,
+          onlyHard: true,
         );
     }
   }
@@ -789,6 +799,63 @@ class AppState extends ChangeNotifier {
     return explanation;
   }
 
+  Future<String> buildMemoryTipForCurrentQuestion() async {
+    final session = studySession;
+    if (session == null || session.isCompleted) {
+      return '';
+    }
+    final question = session.currentQuestion;
+    if (question.id == null) {
+      return 'Вопрос ещё не сохранён в базу.';
+    }
+    final existing = session.memoryTips[question.id!];
+    if (existing != null && existing.trim().isNotEmpty) {
+      return existing;
+    }
+    late final String memoryTip;
+    switch (aiProvider) {
+      case AiProvider.openrouter:
+        memoryTip = await openRouterService.generateMemoryTip(
+          questionId: question.id!,
+          question: question.questionText,
+          correctAnswer: question.correctAnswer,
+        );
+        break;
+      case AiProvider.local:
+        memoryTip = await localOnlyService.generateMemoryTip(
+          questionId: question.id!,
+          question: question.questionText,
+          correctAnswer: question.correctAnswer,
+        );
+        break;
+    }
+    session.memoryTips[question.id!] = memoryTip;
+    notifyListeners();
+    return memoryTip;
+  }
+
+  Future<bool?> toggleCurrentQuestionHard() async {
+    final session = studySession;
+    if (session == null || session.isCompleted) {
+      return null;
+    }
+    final current = session.currentQuestion;
+    final questionId = current.id;
+    if (questionId == null) {
+      return null;
+    }
+    final nextValue = !current.isHard;
+    await databaseService.setQuestionHardStatus(
+      questionId: questionId,
+      isHard: nextValue,
+    );
+    session.questions[session.currentIndex] = current.copyWith(
+      isHard: nextValue,
+    );
+    notifyListeners();
+    return nextValue;
+  }
+
   Future<String> generateStudyPlan() async {
     final weak = await databaseService.weakestCategories(limit: 5);
     final payload = <String, Object>{...userStats, 'weakest_categories': weak};
@@ -809,12 +876,24 @@ class AppState extends ChangeNotifier {
     String? category,
     int? difficulty,
     String? searchQuery,
+    bool onlyHard = false,
   }) {
     return databaseService.getQuestions(
       category: category,
       difficulty: difficulty,
       searchQuery: searchQuery,
+      onlyHard: onlyHard,
       limit: 5000,
+    );
+  }
+
+  Future<void> setQuestionHardStatus({
+    required int questionId,
+    required bool isHard,
+  }) async {
+    await databaseService.setQuestionHardStatus(
+      questionId: questionId,
+      isHard: isHard,
     );
   }
 
