@@ -7,6 +7,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 
 import 'screens/analytics_screen.dart';
+import 'screens/hard_questions_screen.dart';
 import 'screens/library_screen.dart';
 import 'screens/study_screen.dart';
 import 'screens/upload_screen.dart';
@@ -63,7 +64,13 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _currentIndex = 0;
 
-  static const _titles = <String>['Upload', 'Study', 'Analytics', 'Library'];
+  static const _titles = <String>[
+    'Upload',
+    'Study',
+    'Analytics',
+    'Hard',
+    'Library',
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -72,6 +79,7 @@ class _HomeShellState extends State<HomeShell> {
       const UploadScreen(),
       const StudyScreen(),
       const AnalyticsScreen(),
+      const HardQuestionsScreen(),
       const LibraryScreen(),
     ];
 
@@ -114,6 +122,11 @@ class _HomeShellState extends State<HomeShell> {
             icon: Icon(Icons.analytics_outlined),
             selectedIcon: Icon(Icons.analytics),
             label: 'Analytics',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.bookmarks_outlined),
+            selectedIcon: Icon(Icons.bookmarks),
+            label: 'Hard',
           ),
           NavigationDestination(
             icon: Icon(Icons.library_books_outlined),
