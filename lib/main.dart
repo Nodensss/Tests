@@ -10,6 +10,7 @@ import 'screens/analytics_screen.dart';
 import 'screens/library_screen.dart';
 import 'screens/study_screen.dart';
 import 'screens/upload_screen.dart';
+import 'services/openrouter_service.dart';
 import 'state/app_state.dart';
 
 Future<void> main() async {
@@ -132,6 +133,12 @@ class _HomeShellState extends State<HomeShell> {
     final openRouterController = TextEditingController(
       text: appState.openRouterApiKey,
     );
+    final explanationPromptController = TextEditingController(
+      text: appState.explanationPromptTemplate,
+    );
+    final memoryTipPromptController = TextEditingController(
+      text: appState.memoryTipPromptTemplate,
+    );
 
     await showDialog<void>(
       context: context,
@@ -139,63 +146,107 @@ class _HomeShellState extends State<HomeShell> {
         builder: (context, setDialogState) => AlertDialog(
           title: const Text('AI settings'),
           content: SizedBox(
-            width: 520,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                DropdownButtonFormField<AiProvider>(
-                  initialValue: provider,
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    labelText: 'Provider',
-                  ),
-                  items: AiProvider.values
-                      .map(
-                        (item) => DropdownMenuItem<AiProvider>(
-                          value: item,
-                          child: Text(item.label),
-                        ),
-                      )
-                      .toList(growable: false),
-                  onChanged: (value) {
-                    if (value == null) {
-                      return;
-                    }
-                    setDialogState(() {
-                      provider = value;
-                    });
-                  },
-                ),
-                const SizedBox(height: 10),
-                if (provider == AiProvider.openrouter) ...<Widget>[
-                  TextField(
-                    controller: openRouterController,
-                    obscureText: true,
+            width: 760,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  DropdownButtonFormField<AiProvider>(
+                    initialValue: provider,
                     decoration: const InputDecoration(
                       border: OutlineInputBorder(),
-                      hintText: 'Paste OPENROUTER API key',
-                      labelText: 'OpenRouter API key',
+                      labelText: 'Provider',
+                    ),
+                    items: AiProvider.values
+                        .map(
+                          (item) => DropdownMenuItem<AiProvider>(
+                            value: item,
+                            child: Text(item.label),
+                          ),
+                        )
+                        .toList(growable: false),
+                    onChanged: (value) {
+                      if (value == null) {
+                        return;
+                      }
+                      setDialogState(() {
+                        provider = value;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  if (provider == AiProvider.openrouter) ...<Widget>[
+                    TextField(
+                      controller: openRouterController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        hintText: 'Paste OPENROUTER API key',
+                        labelText: 'OpenRouter API key',
+                      ),
+                    ),
+                  ],
+                  if (provider == AiProvider.local) ...<Widget>[
+                    Text(
+                      'Локальный режим использует только правила без внешнего API.',
+                      style: TextStyle(color: Colors.grey.shade300),
+                    ),
+                  ],
+                  const SizedBox(height: 14),
+                  Text(
+                    'Промпты для AI',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Используйте плейсхолдеры: {question} и {correct_answer}.',
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: explanationPromptController,
+                    minLines: 4,
+                    maxLines: 9,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      labelText: 'Промпт: Объяснить (AI)',
                     ),
                   ),
-                ],
-                if (provider == AiProvider.local) ...<Widget>[
-                  Text(
-                    'Локальный режим использует только правила без внешнего API.',
-                    style: TextStyle(color: Colors.grey.shade300),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: memoryTipPromptController,
+                    minLines: 4,
+                    maxLines: 10,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      labelText: 'Промпт: Как запомнить (AI)',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      explanationPromptController.text = OpenRouterService
+                          .defaultExplanationUserPromptTemplate;
+                      memoryTipPromptController.text =
+                          OpenRouterService.defaultMemoryTipUserPromptTemplate;
+                    },
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Сбросить промпты по умолчанию'),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: <Widget>[
+                      Chip(
+                        label: Text('Current: ${appState.aiProvider.label}'),
+                      ),
+                      if (appState.openRouterApiKey.trim().isNotEmpty)
+                        const Chip(label: Text('OpenRouter key set')),
+                    ],
                   ),
                 ],
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: <Widget>[
-                    Chip(label: Text('Current: ${appState.aiProvider.label}')),
-                    if (appState.openRouterApiKey.trim().isNotEmpty)
-                      const Chip(label: Text('OpenRouter key set')),
-                  ],
-                ),
-              ],
+              ),
             ),
           ),
           actions: <Widget>[
@@ -204,11 +255,16 @@ class _HomeShellState extends State<HomeShell> {
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () {
-                appState.updateAiSettings(
+              onPressed: () async {
+                await appState.updateAiSettings(
                   provider: provider,
                   openRouterKey: openRouterController.text,
+                  explanationPrompt: explanationPromptController.text,
+                  memoryTipPrompt: memoryTipPromptController.text,
                 );
+                if (!context.mounted) {
+                  return;
+                }
                 Navigator.of(context).pop();
               },
               child: const Text('Save'),

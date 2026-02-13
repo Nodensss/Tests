@@ -25,6 +25,31 @@ class OpenRouterService {
   static const String _explanationVersion = 'v3';
   static const String _memoryTipVersion = 'v2';
   static const String _studyPlanVersion = 'v2';
+  static const String defaultExplanationSystemPrompt =
+      'Ты объясняешь экзаменационные ответы просто и коротко. '
+      'Отвечай только на русском языке.';
+  static const String defaultExplanationUserPromptTemplate = '''
+Объясни, почему правильный ответ верный.
+Добавь короткую мнемоническую подсказку.
+Пиши только на русском языке. Английский язык не используй.
+
+Вопрос: {question}
+Правильный ответ: {correct_answer}
+''';
+  static const String defaultMemoryTipSystemPrompt =
+      'Ты тренер по запоминанию технических вопросов. '
+      'Отвечай только на русском языке.';
+  static const String defaultMemoryTipUserPromptTemplate = '''
+Сделай краткую памятку, чтобы человек запомнил правильный ответ.
+Формат:
+1) Ключевая идея (1-2 предложения)
+2) Ассоциация/мнемоника (1 короткая фраза)
+3) Мини-проверка себя (1 вопрос для самопроверки)
+Пиши только на русском языке. Английский язык не используй.
+
+Вопрос: {question}
+Правильный ответ: {correct_answer}
+''';
   final CompetencyService _competencyService = CompetencyService();
   String? _lastError;
   List<String>? _cachedAvailableModels;
@@ -37,6 +62,25 @@ class OpenRouterService {
     final raw = jsonEncode(payload);
     final digest = sha256.convert(utf8.encode(raw)).toString();
     return '$type:$digest';
+  }
+
+  String _renderPromptTemplate({
+    required String template,
+    required String question,
+    required String correctAnswer,
+  }) {
+    final usesQuestion = template.contains('{question}');
+    final usesAnswer = template.contains('{correct_answer}');
+    var rendered = template
+        .replaceAll('{question}', question)
+        .replaceAll('{correct_answer}', correctAnswer);
+    if (!usesQuestion) {
+      rendered = '$rendered\n\nВопрос: $question';
+    }
+    if (!usesAnswer) {
+      rendered = '$rendered\nПравильный ответ: $correctAnswer';
+    }
+    return rendered;
   }
 
   Future<String?> _request(
@@ -653,10 +697,24 @@ $listText
     required int questionId,
     required String question,
     required String correctAnswer,
+    String? systemPrompt,
+    String? userPromptTemplate,
   }) async {
+    final resolvedSystemPrompt =
+        (systemPrompt ?? defaultExplanationSystemPrompt).trim();
+    final resolvedUserTemplate =
+        (userPromptTemplate ?? defaultExplanationUserPromptTemplate).trim();
+    final renderedUserPrompt = _renderPromptTemplate(
+      template: resolvedUserTemplate,
+      question: question,
+      correctAnswer: correctAnswer,
+    );
+
     final cacheKey = _cacheKey('explanation_openrouter', <String, Object>{
       'version': _explanationVersion,
       'model': modelName,
+      'system_prompt': resolvedSystemPrompt,
+      'user_prompt_template': resolvedUserTemplate,
       'question': question,
       'answer': correctAnswer,
     });
@@ -675,15 +733,8 @@ $listText
     if (enabled) {
       explanation =
           (await _request(
-            'Ты объясняешь экзаменационные ответы просто и коротко. Отвечай только на русском языке.',
-            '''
-Объясни, почему правильный ответ верный.
-Добавь короткую мнемоническую подсказку.
-Пиши только на русском языке. Английский язык не используй.
-
-Вопрос: $question
-Правильный ответ: $correctAnswer
-''',
+            resolvedSystemPrompt,
+            renderedUserPrompt,
             temperature: 0.35,
           )) ??
           '';
@@ -763,10 +814,24 @@ ${jsonEncode(stats)}
     required int questionId,
     required String question,
     required String correctAnswer,
+    String? systemPrompt,
+    String? userPromptTemplate,
   }) async {
+    final resolvedSystemPrompt = (systemPrompt ?? defaultMemoryTipSystemPrompt)
+        .trim();
+    final resolvedUserTemplate =
+        (userPromptTemplate ?? defaultMemoryTipUserPromptTemplate).trim();
+    final renderedUserPrompt = _renderPromptTemplate(
+      template: resolvedUserTemplate,
+      question: question,
+      correctAnswer: correctAnswer,
+    );
+
     final cacheKey = _cacheKey('memory_tip_openrouter', <String, Object>{
       'version': _memoryTipVersion,
       'model': modelName,
+      'system_prompt': resolvedSystemPrompt,
+      'user_prompt_template': resolvedUserTemplate,
       'question_id': questionId,
       'question': question,
       'answer': correctAnswer,
@@ -782,18 +847,8 @@ ${jsonEncode(stats)}
     if (enabled) {
       tip =
           (await _request(
-            'Ты тренер по запоминанию технических вопросов. Отвечай только на русском языке.',
-            '''
-Сделай краткую памятку, чтобы человек запомнил правильный ответ.
-Формат:
-1) Ключевая идея (1-2 предложения)
-2) Ассоциация/мнемоника (1 короткая фраза)
-3) Мини-проверка себя (1 вопрос для самопроверки)
-Пиши только на русском языке. Английский язык не используй.
-
-Вопрос: $question
-Правильный ответ: $correctAnswer
-''',
+            resolvedSystemPrompt,
+            renderedUserPrompt,
             temperature: 0.35,
           )) ??
           '';

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 
@@ -117,6 +119,10 @@ class AppState extends ChangeNotifier {
     'OPENROUTER_API_KEY',
     defaultValue: '',
   );
+  String explanationPromptTemplate =
+      OpenRouterService.defaultExplanationUserPromptTemplate;
+  String memoryTipPromptTemplate =
+      OpenRouterService.defaultMemoryTipUserPromptTemplate;
   AiProvider aiProvider = AiProvider.openrouter;
   List<String> categories = <String>['Все'];
   final List<String> competencyCatalog = CompetencyService.allCompetencies;
@@ -137,17 +143,26 @@ class AppState extends ChangeNotifier {
       return;
     }
     await databaseService.database;
+    await _loadAiPromptSettings();
     await refreshDashboard();
     initialized = true;
     notifyListeners();
   }
 
-  void updateAiSettings({
+  Future<void> updateAiSettings({
     required AiProvider provider,
     required String openRouterKey,
-  }) {
+    required String explanationPrompt,
+    required String memoryTipPrompt,
+  }) async {
     aiProvider = provider;
     openRouterApiKey = openRouterKey.trim();
+    explanationPromptTemplate = explanationPrompt.trim().isEmpty
+        ? OpenRouterService.defaultExplanationUserPromptTemplate
+        : explanationPrompt.trim();
+    memoryTipPromptTemplate = memoryTipPrompt.trim().isEmpty
+        ? OpenRouterService.defaultMemoryTipUserPromptTemplate
+        : memoryTipPrompt.trim();
 
     openRouterService = OpenRouterService(
       databaseService: databaseService,
@@ -159,7 +174,39 @@ class AppState extends ChangeNotifier {
     );
     studySession?.explanations.clear();
     studySession?.memoryTips.clear();
+    final payload = jsonEncode(<String, String>{
+      'explanation_prompt': explanationPromptTemplate,
+      'memory_tip_prompt': memoryTipPromptTemplate,
+    });
+    await databaseService.setCache(
+      cacheKey: 'settings:ai_prompts',
+      cacheType: 'settings',
+      payload: payload,
+    );
     notifyListeners();
+  }
+
+  Future<void> _loadAiPromptSettings() async {
+    final payload = await databaseService.getCache('settings:ai_prompts');
+    if (payload == null || payload.trim().isEmpty) {
+      return;
+    }
+    try {
+      final decoded = jsonDecode(payload);
+      if (decoded is! Map) {
+        return;
+      }
+      final explanation = (decoded['explanation_prompt'] ?? '')
+          .toString()
+          .trim();
+      final memory = (decoded['memory_tip_prompt'] ?? '').toString().trim();
+      if (explanation.isNotEmpty) {
+        explanationPromptTemplate = explanation;
+      }
+      if (memory.isNotEmpty) {
+        memoryTipPromptTemplate = memory;
+      }
+    } catch (_) {}
   }
 
   Future<void> refreshDashboard() async {
@@ -784,6 +831,7 @@ class AppState extends ChangeNotifier {
           questionId: question.id!,
           question: question.questionText,
           correctAnswer: question.correctAnswer,
+          userPromptTemplate: explanationPromptTemplate,
         );
         break;
       case AiProvider.local:
@@ -791,6 +839,7 @@ class AppState extends ChangeNotifier {
           questionId: question.id!,
           question: question.questionText,
           correctAnswer: question.correctAnswer,
+          userPromptTemplate: explanationPromptTemplate,
         );
         break;
     }
@@ -819,6 +868,7 @@ class AppState extends ChangeNotifier {
           questionId: question.id!,
           question: question.questionText,
           correctAnswer: question.correctAnswer,
+          userPromptTemplate: memoryTipPromptTemplate,
         );
         break;
       case AiProvider.local:
@@ -826,6 +876,7 @@ class AppState extends ChangeNotifier {
           questionId: question.id!,
           question: question.questionText,
           correctAnswer: question.correctAnswer,
+          userPromptTemplate: memoryTipPromptTemplate,
         );
         break;
     }
