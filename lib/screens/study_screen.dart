@@ -7,7 +7,9 @@ import '../services/quiz_engine.dart';
 import '../state/app_state.dart';
 
 class StudyScreen extends StatefulWidget {
-  const StudyScreen({super.key});
+  const StudyScreen({super.key, this.immersiveMode = false});
+
+  final bool immersiveMode;
 
   @override
   State<StudyScreen> createState() => _StudyScreenState();
@@ -66,6 +68,45 @@ class _StudyScreenState extends State<StudyScreen> {
   }
 
   Widget _buildStartPanel(BuildContext context, AppState appState) {
+    if (widget.immersiveMode) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    const Text(
+                      'Полноэкранный режим викторины',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Сессия не запущена. Запустите тест в обычном режиме, затем откройте полноэкранный режим.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: () => Navigator.of(context).maybePop(),
+                      icon: const Icon(Icons.fullscreen_exit),
+                      label: const Text('Выйти из полноэкранного режима'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     final available = _availableQuestions;
     final maxSelectable = available > 0 ? available : 1;
     final displayedCount = _useAllQuestions
@@ -354,6 +395,18 @@ class _StudyScreenState extends State<StudyScreen> {
                     spacing: 8,
                     runSpacing: 8,
                     children: <Widget>[
+                      if (!widget.immersiveMode)
+                        OutlinedButton.icon(
+                          onPressed: () => _openFullscreenQuiz(context),
+                          icon: const Icon(Icons.fullscreen),
+                          label: const Text('Полный экран'),
+                        )
+                      else
+                        OutlinedButton.icon(
+                          onPressed: () => Navigator.of(context).maybePop(),
+                          icon: const Icon(Icons.fullscreen_exit),
+                          label: const Text('Выйти'),
+                        ),
                       OutlinedButton.icon(
                         onPressed: () => _toggleCurrentHardQuestion(appState),
                         icon: Icon(
@@ -829,6 +882,12 @@ class _StudyScreenState extends State<StudyScreen> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  Future<void> _openFullscreenQuiz(BuildContext context) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const _QuizFullscreenPage()),
+    );
+  }
+
   Widget _buildAnswerOptionTile({
     required BuildContext context,
     required String text,
@@ -1003,5 +1062,17 @@ class _StudyScreenState extends State<StudyScreen> {
     if (confirm == true) {
       _resetCurrentSession(appState);
     }
+  }
+}
+
+class _QuizFullscreenPage extends StatelessWidget {
+  const _QuizFullscreenPage();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0E1117),
+      body: const SafeArea(child: StudyScreen(immersiveMode: true)),
+    );
   }
 }
