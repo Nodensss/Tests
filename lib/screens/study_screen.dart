@@ -438,6 +438,8 @@ class _StudyScreenState extends State<StudyScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             if (!session.answeredCurrent) ...<Widget>[
+              _buildSubmitAnswerButton(appState),
+              const SizedBox(height: 8),
               Column(
                 children: options
                     .map(
@@ -455,18 +457,7 @@ class _StudyScreenState extends State<StudyScreen> {
                     .toList(growable: false),
               ),
               const SizedBox(height: 8),
-              FilledButton(
-                onPressed: _selectedOption == null
-                    ? null
-                    : () async {
-                        await appState.answerQuizOption(_selectedOption!);
-                        if (!mounted) {
-                          return;
-                        }
-                        setState(() {});
-                      },
-                child: const Text('Ответить'),
-              ),
+              _buildSubmitAnswerButton(appState),
             ] else ...<Widget>[
               Text(
                 session.lastIsCorrect ? '✅ Верно' : '❌ Неверно',
@@ -893,23 +884,74 @@ class _StudyScreenState extends State<StudyScreen> {
     if (!mounted) {
       return;
     }
+    final media = MediaQuery.of(context);
+    final useFullscreen = media.size.width < 900;
+    final scrollBody = Scrollbar(
+      thumbVisibility: true,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: SelectableText(text, style: const TextStyle(height: 1.45)),
+      ),
+    );
+
+    if (useFullscreen) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => Dialog.fullscreen(
+          child: SafeArea(
+            child: Column(
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+                  child: Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close),
+                        tooltip: 'Закрыть',
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: scrollBody,
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Закрыть'),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    final dialogHeight = (media.size.height * 0.7)
+        .clamp(300.0, 620.0)
+        .toDouble();
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),
-        content: SizedBox(
-          width: 720,
-          height: 420,
-          child: Scrollbar(
-            thumbVisibility: true,
-            child: SingleChildScrollView(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: SelectableText(text),
-              ),
-            ),
-          ),
-        ),
+        content: SizedBox(width: 780, height: dialogHeight, child: scrollBody),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
@@ -917,6 +959,21 @@ class _StudyScreenState extends State<StudyScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSubmitAnswerButton(AppState appState) {
+    return FilledButton(
+      onPressed: _selectedOption == null
+          ? null
+          : () async {
+              await appState.answerQuizOption(_selectedOption!);
+              if (!mounted) {
+                return;
+              }
+              setState(() {});
+            },
+      child: const Text('Ответить'),
     );
   }
 

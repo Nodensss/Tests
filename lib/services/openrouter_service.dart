@@ -22,8 +22,8 @@ class OpenRouterService {
   final String modelName;
   final int maxRetries;
   static const String _categorizerVersion = 'v5';
-  static const String _explanationVersion = 'v2';
-  static const String _memoryTipVersion = 'v1';
+  static const String _explanationVersion = 'v3';
+  static const String _memoryTipVersion = 'v2';
   static const String _studyPlanVersion = 'v2';
   final CompetencyService _competencyService = CompetencyService();
   String? _lastError;
@@ -675,10 +675,11 @@ $listText
     if (enabled) {
       explanation =
           (await _request(
-            'Ты объясняешь экзаменационные ответы просто и коротко.',
+            'Ты объясняешь экзаменационные ответы просто и коротко. Отвечай только на русском языке.',
             '''
 Объясни, почему правильный ответ верный.
 Добавь короткую мнемоническую подсказку.
+Пиши только на русском языке. Английский язык не используй.
 
 Вопрос: $question
 Правильный ответ: $correctAnswer
@@ -780,16 +781,21 @@ ${jsonEncode(stats)}
     String tip = '';
     if (enabled) {
       tip =
-          (await _request('Ты тренер по запоминанию технических вопросов.', '''
+          (await _request(
+            'Ты тренер по запоминанию технических вопросов. Отвечай только на русском языке.',
+            '''
 Сделай краткую памятку, чтобы человек запомнил правильный ответ.
 Формат:
 1) Ключевая идея (1-2 предложения)
 2) Ассоциация/мнемоника (1 короткая фраза)
 3) Мини-проверка себя (1 вопрос для самопроверки)
+Пиши только на русском языке. Английский язык не используй.
 
 Вопрос: $question
 Правильный ответ: $correctAnswer
-''', temperature: 0.35)) ??
+''',
+            temperature: 0.35,
+          )) ??
           '';
     }
 
