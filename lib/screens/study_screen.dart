@@ -542,7 +542,6 @@ class _StudyScreenState extends State<StudyScreen> {
             if (!answeredCurrent) ...<Widget>[
               _buildSubmitAnswerButton(appState),
               const SizedBox(height: 8),
-              _buildSubmitAnswerButton(appState),
             ] else ...<Widget>[
               Text(
                 currentIsCorrect ? '✅ Верно' : '❌ Неверно',

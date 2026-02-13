@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/question.dart';
@@ -66,6 +67,11 @@ class _HardQuestionsScreenState extends State<HardQuestionsScreen> {
                       icon: const Icon(Icons.refresh),
                       label: const Text('Обновить'),
                     ),
+                    FilledButton.tonalIcon(
+                      onPressed: _questions.isEmpty ? null : _copyAllQuestions,
+                      icon: const Icon(Icons.copy_all_outlined),
+                      label: const Text('Копировать все'),
+                    ),
                     if (_questions.isNotEmpty)
                       Chip(label: Text('Всего: ${_questions.length}')),
                     if (_loading)
@@ -95,6 +101,7 @@ class _HardQuestionsScreenState extends State<HardQuestionsScreen> {
             (q) => _HardQuestionCard(
               question: q,
               onRemove: () => _removeFromHard(q),
+              onCopy: () => _copyOneQuestion(q),
             ),
           ),
       ],
@@ -137,13 +144,70 @@ class _HardQuestionsScreenState extends State<HardQuestionsScreen> {
       context,
     ).showSnackBar(const SnackBar(content: Text('Вопрос убран из сложных')));
   }
+
+  Future<void> _copyOneQuestion(Question question) async {
+    final text = _formatQuestionForCopy(question);
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Вопрос скопирован')));
+  }
+
+  Future<void> _copyAllQuestions() async {
+    final payload = _questions
+        .asMap()
+        .entries
+        .map(
+          (entry) => _formatQuestionForCopy(entry.value, index: entry.key + 1),
+        )
+        .join('\n\n====================\n\n');
+    await Clipboard.setData(ClipboardData(text: payload));
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Скопировано сложных вопросов: ${_questions.length}'),
+      ),
+    );
+  }
+
+  String _formatQuestionForCopy(Question question, {int? index}) {
+    final wrong = question.wrongAnswers
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+    final lines = <String>[
+      if (index != null) '$index.',
+      'Вопрос: ${question.questionText}',
+      'Правильный ответ: ${question.correctAnswer}',
+      if ((question.competency ?? '').trim().isNotEmpty)
+        'Компетенция: ${question.competency}',
+      if ((question.category ?? '').trim().isNotEmpty)
+        'Категория: ${question.category}',
+      'Сложность: ${question.difficulty}',
+      if (wrong.isNotEmpty) 'Неправильные варианты:',
+      ...wrong.map((item) => '- $item'),
+      if ((question.sourceFile ?? '').trim().isNotEmpty)
+        'Источник: ${question.sourceFile}',
+    ];
+    return lines.join('\n');
+  }
 }
 
 class _HardQuestionCard extends StatelessWidget {
-  const _HardQuestionCard({required this.question, required this.onRemove});
+  const _HardQuestionCard({
+    required this.question,
+    required this.onRemove,
+    required this.onCopy,
+  });
 
   final Question question;
   final VoidCallback onRemove;
+  final VoidCallback onCopy;
 
   @override
   Widget build(BuildContext context) {
@@ -198,10 +262,21 @@ class _HardQuestionCard extends StatelessWidget {
             const SizedBox(height: 8),
             Align(
               alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: onRemove,
-                icon: const Icon(Icons.bookmark_remove_outlined),
-                label: const Text('Убрать из сложных'),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  TextButton.icon(
+                    onPressed: onCopy,
+                    icon: const Icon(Icons.copy_outlined),
+                    label: const Text('Копировать'),
+                  ),
+                  TextButton.icon(
+                    onPressed: onRemove,
+                    icon: const Icon(Icons.bookmark_remove_outlined),
+                    label: const Text('Убрать из сложных'),
+                  ),
+                ],
               ),
             ),
           ],
