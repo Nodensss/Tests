@@ -6,6 +6,8 @@ import '../models/question.dart';
 import '../services/quiz_engine.dart';
 import '../state/app_state.dart';
 
+enum _FullscreenMenuAction { explain, memoryTip, reset, exit }
+
 class StudyScreen extends StatefulWidget {
   const StudyScreen({super.key, this.immersiveMode = false});
 
@@ -416,12 +418,6 @@ class _StudyScreenState extends State<StudyScreen> {
                           onPressed: () => _openFullscreenQuiz(context),
                           icon: const Icon(Icons.fullscreen),
                           label: const Text('Полный экран'),
-                        )
-                      else
-                        OutlinedButton.icon(
-                          onPressed: () => Navigator.of(context).maybePop(),
-                          icon: const Icon(Icons.fullscreen_exit),
-                          label: const Text('Выйти'),
                         ),
                       if (!widget.immersiveMode)
                         OutlinedButton.icon(
@@ -435,12 +431,43 @@ class _StudyScreenState extends State<StudyScreen> {
                             question.isHard ? 'Убрать из сложных' : 'В сложные',
                           ),
                         ),
-                      OutlinedButton.icon(
-                        onPressed: () =>
-                            _confirmResetSession(context, appState),
-                        icon: const Icon(Icons.restart_alt),
-                        label: const Text('Сбросить тест'),
-                      ),
+                      if (!widget.immersiveMode)
+                        OutlinedButton.icon(
+                          onPressed: () =>
+                              _confirmResetSession(context, appState),
+                          icon: const Icon(Icons.restart_alt),
+                          label: const Text('Сбросить тест'),
+                        ),
+                      if (widget.immersiveMode)
+                        PopupMenuButton<_FullscreenMenuAction>(
+                          tooltip: 'Меню',
+                          icon: const Icon(Icons.more_horiz),
+                          onSelected: (action) => _handleFullscreenMenuAction(
+                            action,
+                            context,
+                            appState,
+                          ),
+                          itemBuilder: (context) =>
+                              const <PopupMenuEntry<_FullscreenMenuAction>>[
+                                PopupMenuItem<_FullscreenMenuAction>(
+                                  value: _FullscreenMenuAction.explain,
+                                  child: Text('Объяснить (AI)'),
+                                ),
+                                PopupMenuItem<_FullscreenMenuAction>(
+                                  value: _FullscreenMenuAction.memoryTip,
+                                  child: Text('Как запомнить (AI)'),
+                                ),
+                                PopupMenuDivider(),
+                                PopupMenuItem<_FullscreenMenuAction>(
+                                  value: _FullscreenMenuAction.reset,
+                                  child: Text('Сбросить тест'),
+                                ),
+                                PopupMenuItem<_FullscreenMenuAction>(
+                                  value: _FullscreenMenuAction.exit,
+                                  child: Text('Выйти из полноэкранного режима'),
+                                ),
+                              ],
+                        ),
                     ],
                   ),
                 ),
@@ -477,12 +504,14 @@ class _StudyScreenState extends State<StudyScreen> {
                     ],
                   ],
                 ),
-                const SizedBox(height: 8),
-                FilledButton.tonalIcon(
-                  onPressed: () => _searchQuestionInWeb(question),
-                  icon: const Icon(Icons.travel_explore_outlined),
-                  label: const Text('Искать в интернете'),
-                ),
+                if (!widget.immersiveMode) ...<Widget>[
+                  const SizedBox(height: 8),
+                  FilledButton.tonalIcon(
+                    onPressed: () => _searchQuestionInWeb(question),
+                    icon: const Icon(Icons.travel_explore_outlined),
+                    label: const Text('Искать в интернете'),
+                  ),
+                ],
               ],
             ),
           ),
@@ -581,15 +610,31 @@ class _StudyScreenState extends State<StudyScreen> {
               ),
               const SizedBox(height: 8),
             ] else ...<Widget>[
-              Text(
-                currentIsCorrect ? '✅ Верно' : '❌ Неверно',
-                style: TextStyle(
-                  color: currentIsCorrect
-                      ? Colors.greenAccent
-                      : Colors.redAccent,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                ),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      currentIsCorrect ? '✅ Верно' : '❌ Неверно',
+                      style: TextStyle(
+                        color: currentIsCorrect
+                            ? Colors.greenAccent
+                            : Colors.redAccent,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: () {
+                      appState.nextStudyQuestion();
+                      setState(() {
+                        _syncLocalFromSession(appState.studySession);
+                      });
+                    },
+                    child: const Text('Следующий'),
+                  ),
+                ],
               ),
               if (!currentIsCorrect) ...<Widget>[
                 const SizedBox(height: 6),
@@ -613,16 +658,6 @@ class _StudyScreenState extends State<StudyScreen> {
               ],
               const SizedBox(height: 4),
               Text('Время: ${currentTime.toStringAsFixed(1)} сек'),
-              const SizedBox(height: 8),
-              FilledButton(
-                onPressed: () {
-                  appState.nextStudyQuestion();
-                  setState(() {
-                    _syncLocalFromSession(appState.studySession);
-                  });
-                },
-                child: const Text('Следующий'),
-              ),
               const SizedBox(height: 10),
               Wrap(
                 spacing: 8,
@@ -651,32 +686,34 @@ class _StudyScreenState extends State<StudyScreen> {
                         question.isHard ? 'Убрать из сложных' : 'В сложные',
                       ),
                     ),
-                  FilledButton.tonal(
-                    onPressed: () async {
-                      final explanation = await appState
-                          .explainCurrentQuestion();
-                      if (!mounted) {
-                        return;
-                      }
-                      setState(() {
-                        _explanation = explanation;
-                      });
-                    },
-                    child: const Text('Объяснить (AI)'),
-                  ),
-                  FilledButton.tonal(
-                    onPressed: () async {
-                      final tip = await appState
-                          .buildMemoryTipForCurrentQuestion();
-                      if (!mounted) {
-                        return;
-                      }
-                      setState(() {
-                        _memoryTip = tip;
-                      });
-                    },
-                    child: const Text('Как запомнить (AI)'),
-                  ),
+                  if (!widget.immersiveMode)
+                    FilledButton.tonal(
+                      onPressed: () async {
+                        final explanation = await appState
+                            .explainCurrentQuestion();
+                        if (!mounted) {
+                          return;
+                        }
+                        setState(() {
+                          _explanation = explanation;
+                        });
+                      },
+                      child: const Text('Объяснить (AI)'),
+                    ),
+                  if (!widget.immersiveMode)
+                    FilledButton.tonal(
+                      onPressed: () async {
+                        final tip = await appState
+                            .buildMemoryTipForCurrentQuestion();
+                        if (!mounted) {
+                          return;
+                        }
+                        setState(() {
+                          _memoryTip = tip;
+                        });
+                      },
+                      child: const Text('Как запомнить (AI)'),
+                    ),
                 ],
               ),
               if ((_explanation ?? '').isNotEmpty) ...<Widget>[
@@ -1147,6 +1184,42 @@ class _StudyScreenState extends State<StudyScreen> {
             },
       child: const Text('Ответить'),
     );
+  }
+
+  Future<void> _handleFullscreenMenuAction(
+    _FullscreenMenuAction action,
+    BuildContext context,
+    AppState appState,
+  ) async {
+    switch (action) {
+      case _FullscreenMenuAction.explain:
+        final explanation = await appState.explainCurrentQuestion();
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _explanation = explanation;
+        });
+        return;
+      case _FullscreenMenuAction.memoryTip:
+        final tip = await appState.buildMemoryTipForCurrentQuestion();
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _memoryTip = tip;
+        });
+        return;
+      case _FullscreenMenuAction.reset:
+        await _confirmResetSession(context, appState);
+        return;
+      case _FullscreenMenuAction.exit:
+        if (!mounted) {
+          return;
+        }
+        Navigator.of(context).maybePop();
+        return;
+    }
   }
 
   void _syncLocalFromSession(StudySessionState? session) {
