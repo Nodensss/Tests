@@ -395,7 +395,8 @@ class _StudyScreenState extends State<StudyScreen> {
                     spacing: 8,
                     runSpacing: 8,
                     children: <Widget>[
-                      if (session.mode != StudyMode.flashcards)
+                      if (!widget.immersiveMode &&
+                          session.mode != StudyMode.flashcards)
                         OutlinedButton.icon(
                           onPressed: session.currentIndex > 0
                               ? () {
@@ -422,17 +423,18 @@ class _StudyScreenState extends State<StudyScreen> {
                           icon: const Icon(Icons.fullscreen_exit),
                           label: const Text('Выйти'),
                         ),
-                      OutlinedButton.icon(
-                        onPressed: () => _toggleCurrentHardQuestion(appState),
-                        icon: Icon(
-                          question.isHard
-                              ? Icons.bookmark_remove_outlined
-                              : Icons.bookmark_add_outlined,
+                      if (!widget.immersiveMode)
+                        OutlinedButton.icon(
+                          onPressed: () => _toggleCurrentHardQuestion(appState),
+                          icon: Icon(
+                            question.isHard
+                                ? Icons.bookmark_remove_outlined
+                                : Icons.bookmark_add_outlined,
+                          ),
+                          label: Text(
+                            question.isHard ? 'Убрать из сложных' : 'В сложные',
+                          ),
                         ),
-                        label: Text(
-                          question.isHard ? 'Убрать из сложных' : 'В сложные',
-                        ),
-                      ),
                       OutlinedButton.icon(
                         onPressed: () =>
                             _confirmResetSession(context, appState),
@@ -461,11 +463,18 @@ class _StudyScreenState extends State<StudyScreen> {
                   spacing: 6,
                   runSpacing: 6,
                   children: <Widget>[
-                    if ((question.competency ?? '').trim().isNotEmpty)
-                      Chip(label: Text(question.competency!)),
-                    Chip(label: Text(question.category ?? 'Без категории')),
-                    Chip(label: Text('Difficulty ${question.difficulty}')),
-                    if (question.isHard) const Chip(label: Text('Сложный')),
+                    if (widget.immersiveMode) ...<Widget>[
+                      if (((question.competency ?? '').trim().isNotEmpty))
+                        Chip(label: Text(question.competency!))
+                      else if (((question.sourceFile ?? '').trim().isNotEmpty))
+                        Chip(label: Text(question.sourceFile!)),
+                    ] else ...<Widget>[
+                      if ((question.competency ?? '').trim().isNotEmpty)
+                        Chip(label: Text(question.competency!)),
+                      Chip(label: Text(question.category ?? 'Без категории')),
+                      Chip(label: Text('Difficulty ${question.difficulty}')),
+                      if (question.isHard) const Chip(label: Text('Сложный')),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -540,7 +549,36 @@ class _StudyScreenState extends State<StudyScreen> {
                   .toList(growable: false),
             ),
             if (!answeredCurrent) ...<Widget>[
-              _buildSubmitAnswerButton(appState),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  _buildSubmitAnswerButton(appState),
+                  if (widget.immersiveMode && session.currentIndex > 0)
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        appState.previousStudyQuestion();
+                        setState(() {
+                          _syncLocalFromSession(appState.studySession);
+                        });
+                      },
+                      icon: const Icon(Icons.arrow_back),
+                      label: const Text('Назад'),
+                    ),
+                  if (widget.immersiveMode)
+                    OutlinedButton.icon(
+                      onPressed: () => _toggleCurrentHardQuestion(appState),
+                      icon: Icon(
+                        question.isHard
+                            ? Icons.bookmark_remove_outlined
+                            : Icons.bookmark_add_outlined,
+                      ),
+                      label: Text(
+                        question.isHard ? 'Убрать из сложных' : 'В сложные',
+                      ),
+                    ),
+                ],
+              ),
               const SizedBox(height: 8),
             ] else ...<Widget>[
               Text(
@@ -580,6 +618,29 @@ class _StudyScreenState extends State<StudyScreen> {
                 spacing: 8,
                 runSpacing: 8,
                 children: <Widget>[
+                  if (widget.immersiveMode && session.currentIndex > 0)
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        appState.previousStudyQuestion();
+                        setState(() {
+                          _syncLocalFromSession(appState.studySession);
+                        });
+                      },
+                      icon: const Icon(Icons.arrow_back),
+                      label: const Text('Назад'),
+                    ),
+                  if (widget.immersiveMode)
+                    OutlinedButton.icon(
+                      onPressed: () => _toggleCurrentHardQuestion(appState),
+                      icon: Icon(
+                        question.isHard
+                            ? Icons.bookmark_remove_outlined
+                            : Icons.bookmark_add_outlined,
+                      ),
+                      label: Text(
+                        question.isHard ? 'Убрать из сложных' : 'В сложные',
+                      ),
+                    ),
                   FilledButton.tonal(
                     onPressed: () async {
                       final explanation = await appState
