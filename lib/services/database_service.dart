@@ -20,6 +20,7 @@ class AddQuestionsProgress {
 
 typedef AddQuestionsProgressCallback =
     void Function(AddQuestionsProgress progress);
+typedef QuestionKeyProgressCallback = void Function(int processed, int total);
 
 class DatabaseService {
   DatabaseService._();
@@ -363,6 +364,65 @@ class DatabaseService {
     final db = await database;
     final row = await db.rawQuery('SELECT COUNT(*) AS cnt FROM questions');
     return (row.first['cnt'] as int?) ?? 0;
+  }
+
+  String _normalizeQuestionKeyPart(String value) {
+    return value.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  String _buildNormalizedQuestionKey({
+    required String questionText,
+    required String correctAnswer,
+    required String wrong1,
+    required String wrong2,
+    required String wrong3,
+  }) {
+    return <String>[
+      _normalizeQuestionKeyPart(questionText),
+      _normalizeQuestionKeyPart(correctAnswer),
+      _normalizeQuestionKeyPart(wrong1),
+      _normalizeQuestionKeyPart(wrong2),
+      _normalizeQuestionKeyPart(wrong3),
+    ].join('||');
+  }
+
+  Future<Set<String>> getNormalizedQuestionKeys({
+    QuestionKeyProgressCallback? onProgress,
+  }) async {
+    final db = await database;
+    final total = await questionsCount();
+    if (total <= 0) {
+      onProgress?.call(0, 0);
+      return <String>{};
+    }
+
+    final rows = await db.rawQuery('''
+      SELECT
+        question_text,
+        correct_answer,
+        COALESCE(wrong_answer_1, '') AS wrong_answer_1,
+        COALESCE(wrong_answer_2, '') AS wrong_answer_2,
+        COALESCE(wrong_answer_3, '') AS wrong_answer_3
+      FROM questions
+    ''');
+
+    final keys = <String>{};
+    for (var i = 0; i < rows.length; i++) {
+      final row = rows[i];
+      keys.add(
+        _buildNormalizedQuestionKey(
+          questionText: (row['question_text'] ?? '').toString(),
+          correctAnswer: (row['correct_answer'] ?? '').toString(),
+          wrong1: (row['wrong_answer_1'] ?? '').toString(),
+          wrong2: (row['wrong_answer_2'] ?? '').toString(),
+          wrong3: (row['wrong_answer_3'] ?? '').toString(),
+        ),
+      );
+      if ((i + 1) % 200 == 0 || i + 1 == rows.length) {
+        onProgress?.call(i + 1, total);
+      }
+    }
+    return keys;
   }
 
   Future<int> countQuestions({

@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/question.dart';
 import '../state/app_state.dart';
 
 class UploadScreen extends StatefulWidget {
@@ -18,6 +19,8 @@ class _UploadScreenState extends State<UploadScreen> {
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
     final questions = appState.uploadQuestions;
+    final dbStats = appState.uploadDatabaseStats;
+    final newQuestions = appState.uploadNewQuestions;
     final duplicateGroups = appState.uploadDuplicateGroups;
     final duplicateRows = duplicateGroups.fold<int>(
       0,
@@ -145,6 +148,29 @@ class _UploadScreenState extends State<UploadScreen> {
                       label: Text('Показать дубли ($duplicateRows)'),
                     ),
                     TextButton.icon(
+                      onPressed: appState.busy || questions.isEmpty
+                          ? null
+                          : () async {
+                              await appState.analyzeUploadAgainstDatabase();
+                              if (!context.mounted) {
+                                return;
+                              }
+                              final stats = appState.uploadDatabaseStats;
+                              if (stats == null) {
+                                return;
+                              }
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Сверка с БД: уже есть ${stats.alreadyInDatabase}, новых ${stats.newForDatabase}',
+                                  ),
+                                ),
+                              );
+                            },
+                      icon: const Icon(Icons.manage_search_outlined),
+                      label: const Text('Сверить с БД'),
+                    ),
+                    TextButton.icon(
                       onPressed: appState.busy
                           ? null
                           : () => _confirmResetDatabase(context, appState),
@@ -261,6 +287,53 @@ class _UploadScreenState extends State<UploadScreen> {
                     style: TextStyle(
                       color: Colors.orange.shade300,
                       fontSize: 12,
+                    ),
+                  ),
+                ],
+                if (dbStats != null) ...<Widget>[
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      color: Colors.blueGrey.withValues(alpha: 0.2),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        const Text(
+                          'Сверка с текущей базой',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Всего в загрузке: ${dbStats.totalRows} · уникальных: ${dbStats.uniqueRows} · повторов в загрузке: ${dbStats.duplicateRowsInUpload}',
+                        ),
+                        Text(
+                          'Уже есть в базе: ${dbStats.alreadyInDatabase} · новых для добавления: ${dbStats.newForDatabase}',
+                          style: TextStyle(color: Colors.grey.shade300),
+                        ),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: <Widget>[
+                            TextButton.icon(
+                              onPressed: dbStats.newForDatabase == 0
+                                  ? null
+                                  : () => _showNewQuestionsDialog(
+                                      context,
+                                      newQuestions,
+                                    ),
+                              icon: const Icon(Icons.playlist_add_check),
+                              label: Text(
+                                'Показать новые (${dbStats.newForDatabase})',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -432,6 +505,69 @@ class _UploadScreenState extends State<UploadScreen> {
                                 'Источники: $sourceText',
                                 style: TextStyle(color: Colors.grey.shade300),
                               ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Закрыть'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showNewQuestionsDialog(
+    BuildContext context,
+    List<Question> questions,
+  ) async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Новые вопросы для добавления'),
+        content: SizedBox(
+          width: 920,
+          height: 520,
+          child: questions.isEmpty
+              ? const Center(child: Text('Новых вопросов не найдено.'))
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text('Найдено новых вопросов: ${questions.length}'),
+                    const SizedBox(height: 10),
+                    Expanded(
+                      child: ListView.separated(
+                        itemCount: questions.length,
+                        separatorBuilder: (_, __) => const Divider(height: 16),
+                        itemBuilder: (context, index) {
+                          final item = questions[index];
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                '${index + 1}. ${item.questionText}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text('Правильный: ${item.correctAnswer}'),
+                              if ((item.competency ?? '').trim().isNotEmpty)
+                                Text('Компетенция: ${item.competency}'),
+                              if ((item.sourceFile ?? '').trim().isNotEmpty)
+                                Text(
+                                  'Источник: ${item.sourceFile}',
+                                  style: TextStyle(
+                                    color: Colors.grey.shade300,
+                                    fontSize: 12,
+                                  ),
+                                ),
                             ],
                           );
                         },

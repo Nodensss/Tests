@@ -34,6 +34,22 @@ class UploadDuplicateGroup {
   int get duplicatesOnly => count > 1 ? count - 1 : 0;
 }
 
+class UploadDatabaseStats {
+  const UploadDatabaseStats({
+    required this.totalRows,
+    required this.uniqueRows,
+    required this.duplicateRowsInUpload,
+    required this.alreadyInDatabase,
+    required this.newForDatabase,
+  });
+
+  final int totalRows;
+  final int uniqueRows;
+  final int duplicateRowsInUpload;
+  final int alreadyInDatabase;
+  final int newForDatabase;
+}
+
 enum AiProvider { openrouter, local }
 
 extension AiProviderX on AiProvider {
@@ -150,6 +166,8 @@ class AppState extends ChangeNotifier {
   bool uploadSaved = false;
   int? lastSaveInputCount;
   int? lastSaveChangedCount;
+  UploadDatabaseStats? uploadDatabaseStats;
+  List<Question> uploadNewQuestions = <Question>[];
 
   StudySessionState? studySession;
 
@@ -400,6 +418,93 @@ class AppState extends ChangeNotifier {
     );
   }
 
+  Future<void> _rebuildUploadDatabaseStats({
+    required bool resetBusyState,
+  }) async {
+    if (uploadQuestions.isEmpty) {
+      uploadDatabaseStats = null;
+      uploadNewQuestions = <Question>[];
+      notifyListeners();
+      return;
+    }
+
+    if (resetBusyState) {
+      _setBusyState(
+        value: true,
+        title: 'Сверка с БД',
+        details: 'Подготовка вопросов',
+        progress: 0.0,
+        resetTimer: true,
+      );
+    } else {
+      _setBusyState(
+        value: true,
+        title: 'Сверка с БД',
+        details: 'Подготовка вопросов',
+        progress: 0.0,
+      );
+    }
+
+    final uniqueByKey = <String, Question>{};
+    for (final question in uploadQuestions) {
+      final key = _buildDuplicateKey(question);
+      uniqueByKey.putIfAbsent(key, () => question);
+    }
+
+    _setBusyState(
+      value: true,
+      title: 'Сверка с БД',
+      details: 'Чтение базы вопросов',
+      progress: 0.1,
+    );
+
+    final dbKeys = await databaseService.getNormalizedQuestionKeys(
+      onProgress: (processed, total) {
+        final ratio = total == 0 ? 1.0 : (processed / total).clamp(0.0, 1.0);
+        _setBusyState(
+          value: true,
+          title: 'Сверка с БД',
+          details: 'Сканирование БД: $processed/$total',
+          progress: (0.1 + ratio * 0.8).clamp(0.0, 1.0),
+        );
+      },
+    );
+
+    var alreadyInDatabase = 0;
+    final newQuestions = <Question>[];
+    for (final entry in uniqueByKey.entries) {
+      if (dbKeys.contains(entry.key)) {
+        alreadyInDatabase += 1;
+      } else {
+        newQuestions.add(entry.value);
+      }
+    }
+
+    uploadDatabaseStats = UploadDatabaseStats(
+      totalRows: uploadQuestions.length,
+      uniqueRows: uniqueByKey.length,
+      duplicateRowsInUpload: uploadQuestions.length - uniqueByKey.length,
+      alreadyInDatabase: alreadyInDatabase,
+      newForDatabase: newQuestions.length,
+    );
+    uploadNewQuestions = newQuestions;
+    notifyListeners();
+  }
+
+  Future<void> analyzeUploadAgainstDatabase() async {
+    if (uploadQuestions.isEmpty) {
+      return;
+    }
+    errorMessage = null;
+    try {
+      await _rebuildUploadDatabaseStats(resetBusyState: true);
+    } catch (e) {
+      errorMessage = 'Ошибка сверки с базой: $e';
+    } finally {
+      _setBusyState(value: false);
+    }
+  }
+
   Future<void> parseFiles(List<PlatformFile> files) async {
     _setBusyState(
       value: true,
@@ -411,6 +516,8 @@ class AppState extends ChangeNotifier {
       resetTimer: true,
     );
     errorMessage = null;
+    uploadDatabaseStats = null;
+    uploadNewQuestions = <Question>[];
 
     try {
       final parsed = <Question>[];
@@ -449,6 +556,7 @@ class AppState extends ChangeNotifier {
       uploadSaved = false;
       lastSaveInputCount = null;
       lastSaveChangedCount = null;
+      await _rebuildUploadDatabaseStats(resetBusyState: false);
     } catch (e) {
       errorMessage = 'Ошибка парсинга файлов: $e';
     } finally {
@@ -664,6 +772,8 @@ class AppState extends ChangeNotifier {
     uploadSaved = false;
     lastSaveInputCount = null;
     lastSaveChangedCount = null;
+    uploadDatabaseStats = null;
+    uploadNewQuestions = <Question>[];
     notifyListeners();
   }
 
@@ -684,6 +794,8 @@ class AppState extends ChangeNotifier {
       uploadSaved = false;
       lastSaveInputCount = null;
       lastSaveChangedCount = null;
+      uploadDatabaseStats = null;
+      uploadNewQuestions = <Question>[];
       studySession = null;
       await refreshDashboard();
     } catch (e) {
