@@ -951,6 +951,24 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void jumpToStudyQuestion(int index) {
+    final session = studySession;
+    if (session == null || session.questions.isEmpty) {
+      return;
+    }
+    final bounded = index.clamp(0, session.questions.length - 1);
+    if (bounded == session.currentIndex) {
+      return;
+    }
+    session.currentIndex = bounded;
+    _syncCurrentQuestionFlags(session);
+    session.showAnswer = session.answeredCurrent;
+    if (!session.answeredCurrent) {
+      session.showAnswer = false;
+    }
+    notifyListeners();
+  }
+
   void _syncCurrentQuestionFlags(StudySessionState session) {
     if (session.isCompleted) {
       session.answeredCurrent = false;

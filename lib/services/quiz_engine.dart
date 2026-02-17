@@ -42,7 +42,15 @@ class QuizEngine {
       addOption(wrong);
     }
 
-    if (options.length < targetCount) {
+    final providedWrongUniqueCount = question.wrongAnswers
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .length;
+
+    // If the source already has at least 2 distractors, do not inject
+    // random answers from other questions (it can produce irrelevant options).
+    if (providedWrongUniqueCount < 2 && options.length < targetCount) {
       final questionTextKey = question.questionText.trim().toLowerCase();
       final questionId = question.id;
       final correctLower = question.correctAnswer.trim().toLowerCase();

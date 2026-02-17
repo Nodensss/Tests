@@ -473,9 +473,22 @@ class _StudyScreenState extends State<StudyScreen> {
                 ),
                 LinearProgressIndicator(value: progress),
                 const SizedBox(height: 8),
-                Text(
-                  'Вопрос ${session.currentIndex + 1} / ${session.questions.length}',
-                  style: TextStyle(color: Colors.grey.shade300),
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        'Вопрос ${session.currentIndex + 1} / ${session.questions.length}',
+                        style: TextStyle(color: Colors.grey.shade300),
+                      ),
+                    ),
+                    if (session.questions.length > 1)
+                      IconButton(
+                        onPressed: () =>
+                            _showQuestionJumpDialog(context, appState),
+                        tooltip: 'Перейти к вопросу',
+                        icon: const Icon(Icons.list_alt_outlined),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 6),
                 Text(
@@ -1162,6 +1175,84 @@ class _StudyScreenState extends State<StudyScreen> {
         ],
       ),
     );
+  }
+
+  String _questionPreview(String raw) {
+    final text = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (text.length <= 80) {
+      return text;
+    }
+    return '${text.substring(0, 80)}...';
+  }
+
+  Future<void> _showQuestionJumpDialog(
+    BuildContext context,
+    AppState appState,
+  ) async {
+    final session = appState.studySession;
+    if (session == null || session.questions.isEmpty) {
+      return;
+    }
+    var selectedIndex = session.currentIndex;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Перейти к вопросу'),
+          content: SizedBox(
+            width: 760,
+            child: DropdownButtonFormField<int>(
+              initialValue: selectedIndex,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'Выберите вопрос',
+              ),
+              items: List<DropdownMenuItem<int>>.generate(
+                session.questions.length,
+                (index) {
+                  final question = session.questions[index];
+                  return DropdownMenuItem<int>(
+                    value: index,
+                    child: Text(
+                      '${index + 1}. ${_questionPreview(question.questionText)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  );
+                },
+              ),
+              onChanged: (value) {
+                if (value == null) {
+                  return;
+                }
+                setDialogState(() {
+                  selectedIndex = value;
+                });
+              },
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Перейти'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    appState.jumpToStudyQuestion(selectedIndex);
+    setState(() {
+      _syncLocalFromSession(appState.studySession);
+    });
   }
 
   Widget _buildSubmitAnswerButton(AppState appState) {
