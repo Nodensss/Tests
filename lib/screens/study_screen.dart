@@ -613,6 +613,16 @@ class _StudyScreenState extends State<StudyScreen> {
               ],
               const SizedBox(height: 4),
               Text('Время: ${currentTime.toStringAsFixed(1)} сек'),
+              const SizedBox(height: 8),
+              FilledButton(
+                onPressed: () {
+                  appState.nextStudyQuestion();
+                  setState(() {
+                    _syncLocalFromSession(appState.studySession);
+                  });
+                },
+                child: const Text('Следующий'),
+              ),
               const SizedBox(height: 10),
               Wrap(
                 spacing: 8,
@@ -666,15 +676,6 @@ class _StudyScreenState extends State<StudyScreen> {
                       });
                     },
                     child: const Text('Как запомнить (AI)'),
-                  ),
-                  FilledButton(
-                    onPressed: () {
-                      appState.nextStudyQuestion();
-                      setState(() {
-                        _syncLocalFromSession(appState.studySession);
-                      });
-                    },
-                    child: const Text('Следующий'),
                   ),
                 ],
               ),
