@@ -378,6 +378,13 @@ class _StudyScreenState extends State<StudyScreen> {
   Widget _buildActiveSession(BuildContext context, AppState appState) {
     final session = appState.studySession!;
     final question = session.currentQuestion;
+    final sessionIndex = session.currentIndex;
+    final answeredCurrent = session.mode == StudyMode.flashcards
+        ? session.answeredCurrent
+        : session.quizSelectedOptions.containsKey(sessionIndex);
+    final currentIsCorrect = session.mode == StudyMode.flashcards
+        ? session.lastIsCorrect
+        : (session.quizIsCorrectByIndex[sessionIndex] ?? false);
     final progress = session.questions.isEmpty
         ? 0.0
         : session.currentIndex / session.questions.length;
@@ -503,6 +510,18 @@ class _StudyScreenState extends State<StudyScreen> {
                   spacing: 6,
                   runSpacing: 6,
                   children: <Widget>[
+                    if (answeredCurrent && session.mode != StudyMode.flashcards)
+                      Chip(
+                        label: Text(currentIsCorrect ? 'Верно' : 'Неверно'),
+                        backgroundColor: currentIsCorrect
+                            ? Colors.green.withValues(alpha: 0.2)
+                            : Colors.red.withValues(alpha: 0.2),
+                        side: BorderSide(
+                          color: currentIsCorrect
+                              ? Colors.greenAccent
+                              : Colors.redAccent,
+                        ),
+                      ),
                     if (widget.immersiveMode) ...<Widget>[
                       if (((question.competency ?? '').trim().isNotEmpty))
                         Chip(label: Text(question.competency!))
@@ -547,9 +566,6 @@ class _StudyScreenState extends State<StudyScreen> {
     final selectedOption = answeredCurrent
         ? selectedFromHistory
         : _selectedOption;
-    final currentIsCorrect = answeredCurrent
-        ? (session.quizIsCorrectByIndex[index] ?? false)
-        : session.lastIsCorrect;
     final currentTime = answeredCurrent
         ? (session.quizTimeSecondsByIndex[index] ?? session.lastTimeSeconds)
         : session.lastTimeSeconds;
@@ -590,13 +606,28 @@ class _StudyScreenState extends State<StudyScreen> {
                   )
                   .toList(growable: false),
             ),
-            if (!answeredCurrent) ...<Widget>[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: answeredCurrent
+                  ? FilledButton(
+                      onPressed: () {
+                        appState.nextStudyQuestion();
+                        setState(() {
+                          _syncLocalFromSession(appState.studySession);
+                        });
+                      },
+                      child: const Text('Следующий вопрос'),
+                    )
+                  : _buildSubmitAnswerButton(appState),
+            ),
+            const SizedBox(height: 10),
+            if (widget.immersiveMode)
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: <Widget>[
-                  _buildSubmitAnswerButton(appState),
-                  if (widget.immersiveMode && session.currentIndex > 0)
+                  if (session.currentIndex > 0)
                     OutlinedButton.icon(
                       onPressed: () {
                         appState.previousStudyQuestion();
@@ -607,128 +638,53 @@ class _StudyScreenState extends State<StudyScreen> {
                       icon: const Icon(Icons.arrow_back),
                       label: const Text('Назад'),
                     ),
-                  if (widget.immersiveMode)
-                    OutlinedButton.icon(
-                      onPressed: () => _toggleCurrentHardQuestion(appState),
-                      icon: Icon(
-                        question.isHard
-                            ? Icons.bookmark_remove_outlined
-                            : Icons.bookmark_add_outlined,
-                      ),
-                      label: Text(
-                        question.isHard ? 'Убрать из сложных' : 'В сложные',
-                      ),
+                  OutlinedButton.icon(
+                    onPressed: () => _toggleCurrentHardQuestion(appState),
+                    icon: Icon(
+                      question.isHard
+                          ? Icons.bookmark_remove_outlined
+                          : Icons.bookmark_add_outlined,
                     ),
+                    label: Text(
+                      question.isHard ? 'Убрать из сложных' : 'В сложные',
+                    ),
+                  ),
                 ],
-              ),
-              const SizedBox(height: 8),
-            ] else ...<Widget>[
-              Center(
-                child: Text(
-                  currentIsCorrect ? '✅ Верно' : '❌ Неверно',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: currentIsCorrect
-                        ? Colors.greenAccent
-                        : Colors.redAccent,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              if (!currentIsCorrect) ...<Widget>[
-                const SizedBox(height: 6),
-                const Text('Правильный ответ:'),
-                const SizedBox(height: 4),
-                SelectableText(
-                  question.correctAnswer,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                if (question.correctAnswer.trim().length > 120)
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton(
-                      onPressed: () => _showFullTextDialog(
-                        title: 'Полный ответ',
-                        text: question.correctAnswer,
-                      ),
-                      child: const Text('Открыть полностью'),
-                    ),
-                  ),
-              ],
+              )
+            else if (answeredCurrent) ...<Widget>[
               const SizedBox(height: 4),
-              Center(
-                child: Text('Время: ${currentTime.toStringAsFixed(1)} сек'),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () {
-                    appState.nextStudyQuestion();
-                    setState(() {
-                      _syncLocalFromSession(appState.studySession);
-                    });
-                  },
-                  child: const Text('Следующий вопрос'),
-                ),
-              ),
+              Text('Время: ${currentTime.toStringAsFixed(1)} сек'),
               const SizedBox(height: 10),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: <Widget>[
-                  if (widget.immersiveMode && session.currentIndex > 0)
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        appState.previousStudyQuestion();
-                        setState(() {
-                          _syncLocalFromSession(appState.studySession);
-                        });
-                      },
-                      icon: const Icon(Icons.arrow_back),
-                      label: const Text('Назад'),
-                    ),
-                  if (widget.immersiveMode)
-                    OutlinedButton.icon(
-                      onPressed: () => _toggleCurrentHardQuestion(appState),
-                      icon: Icon(
-                        question.isHard
-                            ? Icons.bookmark_remove_outlined
-                            : Icons.bookmark_add_outlined,
-                      ),
-                      label: Text(
-                        question.isHard ? 'Убрать из сложных' : 'В сложные',
-                      ),
-                    ),
-                  if (!widget.immersiveMode)
-                    FilledButton.tonal(
-                      onPressed: () async {
-                        final explanation = await appState
-                            .explainCurrentQuestion();
-                        if (!mounted) {
-                          return;
-                        }
-                        setState(() {
-                          _explanation = explanation;
-                        });
-                      },
-                      child: const Text('Объяснить (AI)'),
-                    ),
-                  if (!widget.immersiveMode)
-                    FilledButton.tonal(
-                      onPressed: () async {
-                        final tip = await appState
-                            .buildMemoryTipForCurrentQuestion();
-                        if (!mounted) {
-                          return;
-                        }
-                        setState(() {
-                          _memoryTip = tip;
-                        });
-                      },
-                      child: const Text('Как запомнить (AI)'),
-                    ),
+                  FilledButton.tonal(
+                    onPressed: () async {
+                      final explanation = await appState
+                          .explainCurrentQuestion();
+                      if (!mounted) {
+                        return;
+                      }
+                      setState(() {
+                        _explanation = explanation;
+                      });
+                    },
+                    child: const Text('Объяснить (AI)'),
+                  ),
+                  FilledButton.tonal(
+                    onPressed: () async {
+                      final tip = await appState
+                          .buildMemoryTipForCurrentQuestion();
+                      if (!mounted) {
+                        return;
+                      }
+                      setState(() {
+                        _memoryTip = tip;
+                      });
+                    },
+                    child: const Text('Как запомнить (AI)'),
+                  ),
                 ],
               ),
               if ((_explanation ?? '').isNotEmpty) ...<Widget>[
