@@ -623,31 +623,18 @@ class _StudyScreenState extends State<StudyScreen> {
               ),
               const SizedBox(height: 8),
             ] else ...<Widget>[
-              Row(
-                children: <Widget>[
-                  Expanded(
-                    child: Text(
-                      currentIsCorrect ? '✅ Верно' : '❌ Неверно',
-                      style: TextStyle(
-                        color: currentIsCorrect
-                            ? Colors.greenAccent
-                            : Colors.redAccent,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
+              Center(
+                child: Text(
+                  currentIsCorrect ? '✅ Верно' : '❌ Неверно',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: currentIsCorrect
+                        ? Colors.greenAccent
+                        : Colors.redAccent,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
                   ),
-                  const SizedBox(width: 8),
-                  FilledButton(
-                    onPressed: () {
-                      appState.nextStudyQuestion();
-                      setState(() {
-                        _syncLocalFromSession(appState.studySession);
-                      });
-                    },
-                    child: const Text('Следующий'),
-                  ),
-                ],
+                ),
               ),
               if (!currentIsCorrect) ...<Widget>[
                 const SizedBox(height: 6),
@@ -670,7 +657,22 @@ class _StudyScreenState extends State<StudyScreen> {
                   ),
               ],
               const SizedBox(height: 4),
-              Text('Время: ${currentTime.toStringAsFixed(1)} сек'),
+              Center(
+                child: Text('Время: ${currentTime.toStringAsFixed(1)} сек'),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () {
+                    appState.nextStudyQuestion();
+                    setState(() {
+                      _syncLocalFromSession(appState.studySession);
+                    });
+                  },
+                  child: const Text('Следующий вопрос'),
+                ),
+              ),
               const SizedBox(height: 10),
               Wrap(
                 spacing: 8,
