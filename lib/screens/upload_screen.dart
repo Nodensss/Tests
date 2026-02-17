@@ -80,10 +80,20 @@ class _UploadScreenState extends State<UploadScreen> {
                               if (!context.mounted) {
                                 return;
                               }
+                              final input = appState.lastSaveInputCount ?? 0;
+                              final skipped = (input - inserted).clamp(
+                                0,
+                                input,
+                              );
+                              final text = inserted > 0
+                                  ? 'Сохранено/обновлено вопросов: $inserted'
+                                  : 'Новых изменений нет: вопросы уже в БД или пустые строки';
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content: Text(
-                                    'Сохранено/обновлено вопросов: $inserted',
+                                    inserted > 0
+                                        ? '$text (пропущено: $skipped)'
+                                        : '$text (проверено: $input)',
                                   ),
                                 ),
                               );

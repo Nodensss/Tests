@@ -144,213 +144,216 @@ class DatabaseService {
     final db = await database;
     var changed = 0;
     var processed = 0;
+    final total = questions.length;
+    const chunkSize = 200;
 
     onProgress?.call(
-      AddQuestionsProgress(processed: 0, total: questions.length, changed: 0),
+      AddQuestionsProgress(processed: 0, total: total, changed: 0),
     );
 
-    await db.transaction((txn) async {
-      for (final question in questions) {
-        if (question.questionText.trim().isEmpty ||
-            question.correctAnswer.trim().isEmpty) {
-          processed += 1;
-          if (processed % 20 == 0 || processed == questions.length) {
-            onProgress?.call(
-              AddQuestionsProgress(
-                processed: processed,
-                total: questions.length,
-                changed: changed,
-              ),
-            );
-          }
-          continue;
-        }
-        final normalizedQuestionText = question.questionText.trim();
-        final normalizedCorrectAnswer = question.correctAnswer.trim();
-        final wrong1 = question.wrongAnswers.isNotEmpty
-            ? question.wrongAnswers[0]
-            : '';
-        final wrong2 = question.wrongAnswers.length > 1
-            ? question.wrongAnswers[1]
-            : '';
-        final wrong3 = question.wrongAnswers.length > 2
-            ? question.wrongAnswers[2]
-            : '';
-        final competency = question.competency?.trim() ?? '';
+    for (var offset = 0; offset < total; offset += chunkSize) {
+      final end = min(offset + chunkSize, total);
+      final chunk = questions.sublist(offset, end);
 
-        final brokenRows = await txn.rawQuery(
-          '''
-          SELECT id
-          FROM questions
-          WHERE question_text = ?
-            AND correct_answer = ?
-            AND (
-              (
-                TRIM(COALESCE(wrong_answer_1, '')) = ''
-                AND TRIM(COALESCE(wrong_answer_2, '')) = ''
-                AND TRIM(COALESCE(wrong_answer_3, '')) = ''
+      await db.transaction((txn) async {
+        for (final question in chunk) {
+          if (question.questionText.trim().isEmpty ||
+              question.correctAnswer.trim().isEmpty) {
+            processed += 1;
+            if (processed % 20 == 0 || processed == total) {
+              onProgress?.call(
+                AddQuestionsProgress(
+                  processed: processed,
+                  total: total,
+                  changed: changed,
+                ),
+              );
+            }
+            continue;
+          }
+          final normalizedQuestionText = question.questionText.trim();
+          final normalizedCorrectAnswer = question.correctAnswer.trim();
+          final wrong1 = question.wrongAnswers.isNotEmpty
+              ? question.wrongAnswers[0]
+              : '';
+          final wrong2 = question.wrongAnswers.length > 1
+              ? question.wrongAnswers[1]
+              : '';
+          final wrong3 = question.wrongAnswers.length > 2
+              ? question.wrongAnswers[2]
+              : '';
+          final competency = question.competency?.trim() ?? '';
+
+          final brokenRows = await txn.rawQuery(
+            '''
+            SELECT id
+            FROM questions
+            WHERE question_text = ?
+              AND correct_answer = ?
+              AND (
+                (
+                  TRIM(COALESCE(wrong_answer_1, '')) = ''
+                  AND TRIM(COALESCE(wrong_answer_2, '')) = ''
+                  AND TRIM(COALESCE(wrong_answer_3, '')) = ''
+                )
+                OR (
+                  LOWER(TRIM(COALESCE(wrong_answer_1, ''))) = LOWER(TRIM(?))
+                  AND LOWER(TRIM(COALESCE(wrong_answer_2, ''))) = LOWER(TRIM(?))
+                  AND LOWER(TRIM(COALESCE(wrong_answer_3, ''))) = LOWER(TRIM(?))
+                )
               )
-              OR (
-                LOWER(TRIM(COALESCE(wrong_answer_1, ''))) = LOWER(TRIM(?))
-                AND LOWER(TRIM(COALESCE(wrong_answer_2, ''))) = LOWER(TRIM(?))
-                AND LOWER(TRIM(COALESCE(wrong_answer_3, ''))) = LOWER(TRIM(?))
-              )
-            )
-          ORDER BY id DESC
-          LIMIT 1
-          ''',
-          <Object?>[
-            normalizedQuestionText,
-            normalizedCorrectAnswer,
-            normalizedCorrectAnswer,
-            normalizedCorrectAnswer,
-            normalizedCorrectAnswer,
-          ],
-        );
-        if (brokenRows.isNotEmpty) {
-          final brokenId = brokenRows.first['id'] as int?;
-          if (brokenId != null) {
-            final repaired = await txn.update(
-              'questions',
-              <String, Object?>{
-                'wrong_answer_1': wrong1,
-                'wrong_answer_2': wrong2,
-                'wrong_answer_3': wrong3,
-                'competency': competency.isEmpty ? null : competency,
-                'category': question.category,
-                'subcategory': question.subcategory,
-                'difficulty': question.difficulty,
-                'keywords': question.toMap()['keywords'],
-                'source_file': question.sourceFile,
-                if (question.explanation != null)
-                  'explanation': question.explanation,
-              },
-              where: 'id = ?',
-              whereArgs: <Object?>[brokenId],
-            );
-            if (repaired > 0) {
-              changed += repaired;
-              processed += 1;
-              if (processed % 20 == 0 || processed == questions.length) {
-                onProgress?.call(
-                  AddQuestionsProgress(
-                    processed: processed,
-                    total: questions.length,
-                    changed: changed,
-                  ),
-                );
+            ORDER BY id DESC
+            LIMIT 1
+            ''',
+            <Object?>[
+              normalizedQuestionText,
+              normalizedCorrectAnswer,
+              normalizedCorrectAnswer,
+              normalizedCorrectAnswer,
+              normalizedCorrectAnswer,
+            ],
+          );
+          if (brokenRows.isNotEmpty) {
+            final brokenId = brokenRows.first['id'] as int?;
+            if (brokenId != null) {
+              final repaired = await txn.update(
+                'questions',
+                <String, Object?>{
+                  'wrong_answer_1': wrong1,
+                  'wrong_answer_2': wrong2,
+                  'wrong_answer_3': wrong3,
+                  'competency': competency.isEmpty ? null : competency,
+                  'category': question.category,
+                  'subcategory': question.subcategory,
+                  'difficulty': question.difficulty,
+                  'keywords': question.toMap()['keywords'],
+                  'source_file': question.sourceFile,
+                  if (question.explanation != null)
+                    'explanation': question.explanation,
+                },
+                where: 'id = ?',
+                whereArgs: <Object?>[brokenId],
+              );
+              if (repaired > 0) {
+                changed += repaired;
+                processed += 1;
+                if (processed % 20 == 0 || processed == total) {
+                  onProgress?.call(
+                    AddQuestionsProgress(
+                      processed: processed,
+                      total: total,
+                      changed: changed,
+                    ),
+                  );
+                }
+                continue;
               }
-              continue;
             }
           }
-        }
 
-        final insertedId = await txn.rawInsert(
-          '''
-          INSERT OR IGNORE INTO questions (
-            question_text, correct_answer, wrong_answer_1, wrong_answer_2, wrong_answer_3,
-            is_hard, competency, category, subcategory, difficulty, keywords, explanation, source_file, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ''',
-          <Object?>[
-            normalizedQuestionText,
-            normalizedCorrectAnswer,
-            wrong1,
-            wrong2,
-            wrong3,
-            question.isHard ? 1 : 0,
-            competency.isEmpty ? null : competency,
-            question.category,
-            question.subcategory,
-            question.difficulty,
-            question.toMap()['keywords'],
-            question.explanation,
-            question.sourceFile,
-            question.createdAt?.toIso8601String() ??
-                DateTime.now().toIso8601String(),
-          ],
-        );
-        if (insertedId > 0) {
-          changed += 1;
+          final insertedId = await txn.rawInsert(
+            '''
+            INSERT OR IGNORE INTO questions (
+              question_text, correct_answer, wrong_answer_1, wrong_answer_2, wrong_answer_3,
+              is_hard, competency, category, subcategory, difficulty, keywords, explanation, source_file, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''',
+            <Object?>[
+              normalizedQuestionText,
+              normalizedCorrectAnswer,
+              wrong1,
+              wrong2,
+              wrong3,
+              question.isHard ? 1 : 0,
+              competency.isEmpty ? null : competency,
+              question.category,
+              question.subcategory,
+              question.difficulty,
+              question.toMap()['keywords'],
+              question.explanation,
+              question.sourceFile,
+              question.createdAt?.toIso8601String() ??
+                  DateTime.now().toIso8601String(),
+            ],
+          );
+          if (insertedId > 0) {
+            changed += 1;
+            processed += 1;
+            if (processed % 20 == 0 || processed == total) {
+              onProgress?.call(
+                AddQuestionsProgress(
+                  processed: processed,
+                  total: total,
+                  changed: changed,
+                ),
+              );
+            }
+            continue;
+          }
+
+          // If question already exists, refresh category/metadata from new import.
+          final updated = await txn.rawUpdate(
+            '''
+            UPDATE questions
+            SET
+              is_hard = CASE WHEN ? = 1 THEN 1 ELSE is_hard END,
+              competency = CASE WHEN ? = '' THEN competency ELSE ? END,
+              category = ?,
+              subcategory = ?,
+              difficulty = ?,
+              keywords = ?,
+              source_file = COALESCE(?, source_file),
+              explanation = COALESCE(?, explanation)
+            WHERE question_text = ?
+              AND correct_answer = ?
+              AND COALESCE(wrong_answer_1, '') = ?
+              AND COALESCE(wrong_answer_2, '') = ?
+              AND COALESCE(wrong_answer_3, '') = ?
+            ''',
+            <Object?>[
+              question.isHard ? 1 : 0,
+              competency,
+              competency,
+              question.category,
+              question.subcategory,
+              question.difficulty,
+              question.toMap()['keywords'],
+              question.sourceFile,
+              question.explanation,
+              normalizedQuestionText,
+              normalizedCorrectAnswer,
+              wrong1,
+              wrong2,
+              wrong3,
+            ],
+          );
+          if (updated > 0) {
+            changed += updated;
+          }
           processed += 1;
-          if (processed % 20 == 0 || processed == questions.length) {
+          if (processed % 20 == 0 || processed == total) {
             onProgress?.call(
               AddQuestionsProgress(
                 processed: processed,
-                total: questions.length,
+                total: total,
                 changed: changed,
               ),
             );
           }
-          continue;
         }
+      });
+    }
 
-        // If question already exists, refresh category/metadata from new import.
-        final updated = await txn.rawUpdate(
-          '''
-          UPDATE questions
-          SET
-            is_hard = CASE WHEN ? = 1 THEN 1 ELSE is_hard END,
-            competency = CASE WHEN ? = '' THEN competency ELSE ? END,
-            category = ?,
-            subcategory = ?,
-            difficulty = ?,
-            keywords = ?,
-            source_file = COALESCE(?, source_file),
-            explanation = COALESCE(?, explanation)
-          WHERE question_text = ?
-            AND correct_answer = ?
-            AND COALESCE(wrong_answer_1, '') = ?
-            AND COALESCE(wrong_answer_2, '') = ?
-            AND COALESCE(wrong_answer_3, '') = ?
-          ''',
-          <Object?>[
-            question.isHard ? 1 : 0,
-            competency,
-            competency,
-            question.category,
-            question.subcategory,
-            question.difficulty,
-            question.toMap()['keywords'],
-            question.sourceFile,
-            question.explanation,
-            normalizedQuestionText,
-            normalizedCorrectAnswer,
-            wrong1,
-            wrong2,
-            wrong3,
-          ],
-        );
-        if (updated > 0) {
-          changed += updated;
-        }
-        processed += 1;
-        if (processed % 20 == 0 || processed == questions.length) {
-          onProgress?.call(
-            AddQuestionsProgress(
-              processed: processed,
-              total: questions.length,
-              changed: changed,
-            ),
-          );
-        }
-      }
-
-      await txn.execute('''
-        INSERT OR IGNORE INTO spaced_repetition (question_id, next_review_date)
-        SELECT q.id, DATE('now')
-        FROM questions q
-        LEFT JOIN spaced_repetition sr ON sr.question_id = q.id
-        WHERE sr.question_id IS NULL;
-      ''');
-    });
+    await db.execute('''
+      INSERT OR IGNORE INTO spaced_repetition (question_id, next_review_date)
+      SELECT q.id, DATE('now')
+      FROM questions q
+      LEFT JOIN spaced_repetition sr ON sr.question_id = q.id
+      WHERE sr.question_id IS NULL;
+    ''');
 
     onProgress?.call(
-      AddQuestionsProgress(
-        processed: questions.length,
-        total: questions.length,
-        changed: changed,
-      ),
+      AddQuestionsProgress(processed: total, total: total, changed: changed),
     );
 
     return changed;
