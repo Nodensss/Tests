@@ -71,23 +71,23 @@ class UploadSimilarityMatch {
 }
 
 enum DbQualityIssueType {
-  shortQuestion,
-  shortAnswer,
-  mixedNumericAndTextOptions,
-  multiValueAnswer,
+  missingQuestionText,
+  missingAnswer,
+  missingQuestionMark,
+  unclearQuestionText,
 }
 
 extension DbQualityIssueTypeX on DbQualityIssueType {
   String get label {
     switch (this) {
-      case DbQualityIssueType.shortQuestion:
-        return 'Слишком короткий вопрос';
-      case DbQualityIssueType.shortAnswer:
-        return 'Слишком короткий ответ';
-      case DbQualityIssueType.mixedNumericAndTextOptions:
-        return 'Смешанный формат вариантов';
-      case DbQualityIssueType.multiValueAnswer:
-        return 'Несколько значений в ответе';
+      case DbQualityIssueType.missingQuestionText:
+        return 'Пустой текст вопроса';
+      case DbQualityIssueType.missingAnswer:
+        return 'Отсутствует правильный ответ';
+      case DbQualityIssueType.missingQuestionMark:
+        return 'Нет вопросительной формулировки';
+      case DbQualityIssueType.unclearQuestionText:
+        return 'Непонятная формулировка вопроса';
     }
   }
 }
@@ -122,20 +122,20 @@ class DbQualityReport {
   const DbQualityReport({
     required this.totalQuestions,
     required this.totalIssues,
-    required this.shortQuestionCount,
-    required this.shortAnswerCount,
-    required this.mixedOptionCount,
-    required this.multiValueAnswerCount,
+    required this.missingQuestionTextCount,
+    required this.missingAnswerCount,
+    required this.missingQuestionMarkCount,
+    required this.unclearQuestionTextCount,
     required this.issues,
     required this.categories,
   });
 
   final int totalQuestions;
   final int totalIssues;
-  final int shortQuestionCount;
-  final int shortAnswerCount;
-  final int mixedOptionCount;
-  final int multiValueAnswerCount;
+  final int missingQuestionTextCount;
+  final int missingAnswerCount;
+  final int missingQuestionMarkCount;
+  final int unclearQuestionTextCount;
   final List<DbQualityIssue> issues;
   final List<DbQualityCategoryStat> categories;
 }
@@ -356,6 +356,7 @@ class AppState extends ChangeNotifier {
   Future<int> countQuestionsForMode({
     required StudyMode mode,
     String? category,
+    List<String>? categories,
     int? difficulty,
   }) async {
     switch (mode) {
@@ -367,11 +368,13 @@ class AppState extends ChangeNotifier {
       case StudyMode.weakSpots:
         return databaseService.countQuestions(
           category: category,
+          categories: categories,
           difficulty: difficulty,
         );
       case StudyMode.hardQuestions:
         return databaseService.countQuestions(
           category: category,
+          categories: categories,
           difficulty: difficulty,
           onlyHard: true,
         );
@@ -501,39 +504,69 @@ class AppState extends ChangeNotifier {
     ).hasMatch(value);
   }
 
-  bool _isNumericLikeOption(String value) {
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) {
+  bool _looksLikeUnclearQuestion(String rawQuestion) {
+    final compact = _normalizeForComparison(rawQuestion).replaceAll(' ', '');
+    if (compact.isEmpty) {
       return false;
     }
-    if (_containsLetters(trimmed)) {
-      return false;
+    final hasDigits = RegExp(r'\d').hasMatch(rawQuestion);
+    final hasLetters = _containsLetters(rawQuestion);
+    final tokenCount = _normalizeForComparison(
+      rawQuestion,
+    ).split(' ').where((token) => token.trim().isNotEmpty).length;
+    if (tokenCount <= 1 && (hasDigits || compact.length <= 4)) {
+      return true;
     }
-    final normalized = trimmed
-        .replaceAll(' ', '')
-        .replaceAll(',', '.')
-        .replaceAll('%', '')
-        .replaceAll('°', '');
-    return RegExp(r'^[+-]?\d+(\.\d+)?$').hasMatch(normalized);
+    if (!hasLetters && hasDigits && compact.length <= 8) {
+      return true;
+    }
+    return false;
   }
 
-  bool _looksLikeMultiValueAnswer(String value) {
-    final trimmed = value.trim();
-    if (trimmed.isEmpty || _isNumericLikeOption(trimmed)) {
+  bool _hasQuestionIntent(String rawQuestion) {
+    if (rawQuestion.contains('?')) {
+      return true;
+    }
+    final normalized = _normalizeForComparison(rawQuestion);
+    if (normalized.isEmpty) {
       return false;
     }
-    final parts = trimmed
-        .split(
-          RegExp(
-            r'(,|;|/|\\|\bи\b|\bили\b|\bor\b)',
-            caseSensitive: false,
-            unicode: true,
-          ),
-        )
-        .map((item) => item.trim())
-        .where((item) => item.isNotEmpty)
-        .toList(growable: false);
-    return parts.length >= 2;
+    final padded = ' $normalized ';
+    const markers = <String>[
+      'что',
+      'кто',
+      'где',
+      'когда',
+      'как',
+      'какой',
+      'какая',
+      'какие',
+      'какого',
+      'какую',
+      'каким',
+      'каком',
+      'сколько',
+      'зачем',
+      'почему',
+      'чем',
+      'чему',
+      'чего',
+      'куда',
+      'откуда',
+      'ли',
+      'перечислите',
+      'назовите',
+      'определите',
+      'укажите',
+      'выберите',
+      'допускается',
+    ];
+    for (final marker in markers) {
+      if (padded.contains(' $marker ')) {
+        return true;
+      }
+    }
+    return false;
   }
 
   String _buildDuplicateKey(Question question) {
@@ -787,10 +820,10 @@ class AppState extends ChangeNotifier {
         dbQualityReport = const DbQualityReport(
           totalQuestions: 0,
           totalIssues: 0,
-          shortQuestionCount: 0,
-          shortAnswerCount: 0,
-          mixedOptionCount: 0,
-          multiValueAnswerCount: 0,
+          missingQuestionTextCount: 0,
+          missingAnswerCount: 0,
+          missingQuestionMarkCount: 0,
+          unclearQuestionTextCount: 0,
           issues: <DbQualityIssue>[],
           categories: <DbQualityCategoryStat>[],
         );
@@ -802,10 +835,10 @@ class AppState extends ChangeNotifier {
       final issues = <DbQualityIssue>[];
       final categoryTotals = <String, int>{};
       final categoryIssues = <String, int>{};
-      var shortQuestionCount = 0;
-      var shortAnswerCount = 0;
-      var mixedOptionCount = 0;
-      var multiValueAnswerCount = 0;
+      var missingQuestionTextCount = 0;
+      var missingAnswerCount = 0;
+      var missingQuestionMarkCount = 0;
+      var unclearQuestionTextCount = 0;
 
       void addIssue({
         required DbQualityIssueType type,
@@ -829,62 +862,51 @@ class AppState extends ChangeNotifier {
         final category = _displayCategory(question);
         categoryTotals[category] = (categoryTotals[category] ?? 0) + 1;
 
-        final questionCompact = _normalizeForComparison(
-          question.questionText,
-        ).replaceAll(' ', '');
-        final answerCompact = _normalizeForComparison(
-          question.correctAnswer,
-        ).replaceAll(' ', '');
+        final rawQuestion = question.questionText.trim();
+        final rawAnswer = question.correctAnswer.trim();
 
-        if (questionCompact.length <= 1) {
-          shortQuestionCount += 1;
+        if (rawQuestion.isEmpty) {
+          missingQuestionTextCount += 1;
           addIssue(
-            type: DbQualityIssueType.shortQuestion,
+            type: DbQualityIssueType.missingQuestionText,
             question: question,
             category: category,
-            details: 'Текст вопроса очень короткий: "${question.questionText}"',
+            details: 'У вопроса отсутствует формулировка.',
           );
         }
-        if (answerCompact.length <= 1) {
-          shortAnswerCount += 1;
+        if (rawAnswer.isEmpty) {
+          missingAnswerCount += 1;
           addIssue(
-            type: DbQualityIssueType.shortAnswer,
+            type: DbQualityIssueType.missingAnswer,
             question: question,
             category: category,
-            details: 'Текст правильного ответа очень короткий.',
+            details: 'У вопроса отсутствует правильный ответ.',
           );
         }
-
-        final options = <String>[
-          question.correctAnswer,
-          ...question.wrongAnswers,
-        ].map((item) => item.trim()).where((item) => item.isNotEmpty).toSet();
-        final numericCount = options
-            .where((item) => _isNumericLikeOption(item))
-            .length;
-        final textCount = options
-            .where(
-              (item) => _containsLetters(item) && !_isNumericLikeOption(item),
-            )
-            .length;
-        if (numericCount >= 2 && textCount >= 1) {
-          mixedOptionCount += 1;
+        final tokenCount = _normalizeForComparison(
+          rawQuestion,
+        ).split(' ').where((token) => token.trim().isNotEmpty).length;
+        final missingQuestionMark =
+            rawQuestion.isNotEmpty &&
+            tokenCount <= 3 &&
+            !_hasQuestionIntent(rawQuestion);
+        if (missingQuestionMark && _looksLikeUnclearQuestion(rawQuestion)) {
+          unclearQuestionTextCount += 1;
           addIssue(
-            type: DbQualityIssueType.mixedNumericAndTextOptions,
+            type: DbQualityIssueType.unclearQuestionText,
             question: question,
             category: category,
             details:
-                'В вариантах ответа смешаны числовые и текстовые форматы (числовых: $numericCount, текстовых: $textCount).',
+                'Похоже на неполную/кодовую формулировку (пример: "604"). Нужна проверка вручную.',
           );
-        }
-
-        if (_looksLikeMultiValueAnswer(question.correctAnswer)) {
-          multiValueAnswerCount += 1;
+        } else if (missingQuestionMark) {
+          missingQuestionMarkCount += 1;
           addIssue(
-            type: DbQualityIssueType.multiValueAnswer,
+            type: DbQualityIssueType.missingQuestionMark,
             question: question,
             category: category,
-            details: 'В правильном ответе несколько значений/частей.',
+            details:
+                'Короткая формулировка без вопросительных слов (что/какой/сколько и т.д.). Проверьте смысл вопроса.',
           );
         }
 
@@ -919,10 +941,10 @@ class AppState extends ChangeNotifier {
       dbQualityReport = DbQualityReport(
         totalQuestions: questions.length,
         totalIssues: issues.length,
-        shortQuestionCount: shortQuestionCount,
-        shortAnswerCount: shortAnswerCount,
-        mixedOptionCount: mixedOptionCount,
-        multiValueAnswerCount: multiValueAnswerCount,
+        missingQuestionTextCount: missingQuestionTextCount,
+        missingAnswerCount: missingAnswerCount,
+        missingQuestionMarkCount: missingQuestionMarkCount,
+        unclearQuestionTextCount: unclearQuestionTextCount,
         issues: issues,
         categories: categories,
       );
@@ -1245,6 +1267,7 @@ class AppState extends ChangeNotifier {
     required StudyMode mode,
     required int totalQuestions,
     String? category,
+    List<String>? categories,
     int? difficulty,
   }) async {
     _setBusyState(
@@ -1260,6 +1283,7 @@ class AppState extends ChangeNotifier {
         mode: mode,
         limit: totalQuestions,
         category: category,
+        categories: categories,
         difficulty: difficulty,
       );
       if (questions.isEmpty) {
@@ -1268,7 +1292,9 @@ class AppState extends ChangeNotifier {
       final sessionId = await quizEngine.startSession(
         mode: mode,
         totalQuestions: questions.length,
-        categoryFilter: category,
+        categoryFilter: (categories != null && categories.isNotEmpty)
+            ? categories.join(' | ')
+            : category,
       );
       studySession = StudySessionState(
         mode: mode,

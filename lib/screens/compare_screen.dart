@@ -269,13 +269,54 @@ class _MatchesSection extends StatelessWidget {
   }
 }
 
-class _DatabaseQualitySection extends StatelessWidget {
+class _DatabaseQualitySection extends StatefulWidget {
   const _DatabaseQualitySection({required this.report});
 
   final DbQualityReport report;
 
   @override
+  State<_DatabaseQualitySection> createState() =>
+      _DatabaseQualitySectionState();
+}
+
+class _DatabaseQualitySectionState extends State<_DatabaseQualitySection> {
+  final GlobalKey _issuesKey = GlobalKey();
+  String? _selectedCategory;
+
+  List<DbQualityIssue> _filteredIssues() {
+    if (_selectedCategory == null || _selectedCategory!.trim().isEmpty) {
+      return widget.report.issues;
+    }
+    return widget.report.issues
+        .where((issue) => issue.category == _selectedCategory)
+        .toList(growable: false);
+  }
+
+  void _selectCategory(String? category) {
+    setState(() {
+      if (category == null || category.trim().isEmpty) {
+        _selectedCategory = null;
+      } else if (_selectedCategory == category) {
+        _selectedCategory = null;
+      } else {
+        _selectedCategory = category;
+      }
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final context = _issuesKey.currentContext;
+      if (context != null) {
+        Scrollable.ensureVisible(
+          context,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final filteredIssues = _filteredIssues();
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -293,64 +334,104 @@ class _DatabaseQualitySection extends StatelessWidget {
               children: <Widget>[
                 _MetricItem(
                   title: 'Всего вопросов в БД',
-                  value: '${report.totalQuestions}',
+                  value: '${widget.report.totalQuestions}',
                 ),
                 _MetricItem(
                   title: 'Всего найдено проблем',
-                  value: '${report.totalIssues}',
+                  value: '${widget.report.totalIssues}',
                 ),
                 _MetricItem(
-                  title: 'Короткий вопрос',
-                  value: '${report.shortQuestionCount}',
+                  title: 'Пустой вопрос',
+                  value: '${widget.report.missingQuestionTextCount}',
                 ),
                 _MetricItem(
-                  title: 'Короткий ответ',
-                  value: '${report.shortAnswerCount}',
+                  title: 'Без правильного ответа',
+                  value: '${widget.report.missingAnswerCount}',
                 ),
                 _MetricItem(
-                  title: 'Смешанные варианты',
-                  value: '${report.mixedOptionCount}',
+                  title: 'Нет вопрос. формулировки',
+                  value: '${widget.report.missingQuestionMarkCount}',
                 ),
                 _MetricItem(
-                  title: 'Ответ из нескольких частей',
-                  value: '${report.multiValueAnswerCount}',
+                  title: 'Непонятная формулировка',
+                  value: '${widget.report.unclearQuestionTextCount}',
                 ),
               ],
             ),
             const SizedBox(height: 12),
             const Text(
-              'Разбивка проблем по категориям',
+              'Разбивка проблем по узлам (нажмите на узел)',
               style: TextStyle(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 6),
-            if (report.categories.isEmpty)
+            if (widget.report.categories.isEmpty)
               const Text('Нет данных')
             else
-              ...report.categories
+              ...widget.report.categories
                   .take(20)
                   .map(
                     (row) => Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: SelectableText(
-                        '${row.category}: проблем ${row.issueCount}, всего вопросов ${row.totalQuestions}',
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: row.issueCount == 0
+                            ? null
+                            : () => _selectCategory(row.category),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: _selectedCategory == row.category
+                                  ? Theme.of(context).colorScheme.secondary
+                                  : Colors.white24,
+                            ),
+                            color: _selectedCategory == row.category
+                                ? Theme.of(context).colorScheme.secondary
+                                      .withValues(alpha: 0.14)
+                                : Colors.white.withValues(alpha: 0.02),
+                          ),
+                          child: Text(
+                            '${row.category}: проблем ${row.issueCount}, всего вопросов ${row.totalQuestions}',
+                          ),
+                        ),
                       ),
                     ),
                   ),
-            if (report.categories.length > 20)
+            if (widget.report.categories.length > 20)
               Text(
-                'Показаны первые 20 из ${report.categories.length}.',
+                'Показаны первые 20 из ${widget.report.categories.length}.',
                 style: TextStyle(color: Colors.grey.shade400),
               ),
             const SizedBox(height: 12),
+            if (_selectedCategory != null) ...<Widget>[
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  Chip(label: Text('Фильтр: $_selectedCategory')),
+                  OutlinedButton(
+                    onPressed: () => _selectCategory(null),
+                    child: const Text('Сбросить фильтр'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
+            Container(key: _issuesKey),
             Text(
-              'Примеры проблемных вопросов (${report.issues.length})',
+              'Примеры проблемных вопросов (${filteredIssues.length})',
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 6),
-            if (report.issues.isEmpty)
+            if (filteredIssues.isEmpty)
               const Text('Проблемы не найдены')
             else
-              ...report.issues.take(200).map((issue) {
+              ...filteredIssues.take(200).map((issue) {
                 return Container(
                   margin: const EdgeInsets.only(bottom: 8),
                   padding: const EdgeInsets.all(10),
@@ -377,9 +458,9 @@ class _DatabaseQualitySection extends StatelessWidget {
                   ),
                 );
               }),
-            if (report.issues.length > 200)
+            if (filteredIssues.length > 200)
               Text(
-                'Показаны первые 200 из ${report.issues.length}.',
+                'Показаны первые 200 из ${filteredIssues.length}.',
                 style: TextStyle(color: Colors.grey.shade400),
               ),
           ],

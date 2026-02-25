@@ -20,7 +20,7 @@ class StudyScreen extends StatefulWidget {
 
 class _StudyScreenState extends State<StudyScreen> {
   StudyMode _mode = StudyMode.quiz;
-  String _category = 'Все';
+  List<String> _selectedCategories = <String>[];
   int? _difficulty;
   int _questionCount = 20;
   int _availableQuestions = 0;
@@ -282,10 +282,12 @@ class _StudyScreenState extends State<StudyScreen> {
                           final targetCount = _useAllQuestions
                               ? maxSelectable
                               : displayedCount;
+                          final selectedCategories =
+                              _resolvedSelectedCategories(appState);
                           final error = await appState.startStudySession(
                             mode: _mode,
                             totalQuestions: targetCount,
-                            category: _category,
+                            categories: selectedCategories,
                             difficulty: _difficulty,
                           );
                           if (!context.mounted) {
@@ -314,39 +316,59 @@ class _StudyScreenState extends State<StudyScreen> {
   }
 
   Widget _buildCategoryField(AppState appState) {
-    return DropdownButtonFormField<String>(
-      initialValue: _category,
-      isExpanded: true,
+    final allCategories = appState.categories
+        .where((item) => item.trim().isNotEmpty && item != 'Все')
+        .toList(growable: false);
+    final selected = _selectedCategories
+        .where(allCategories.contains)
+        .toList(growable: false);
+
+    return InputDecorator(
       decoration: const InputDecoration(
         border: OutlineInputBorder(),
-        labelText: 'Категория',
+        labelText: 'Компетенции',
       ),
-      items: appState.categories
-          .map(
-            (c) => DropdownMenuItem<String>(
-              value: c,
-              child: Text(c, maxLines: 1, overflow: TextOverflow.ellipsis),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              FilledButton.tonalIcon(
+                onPressed: allCategories.isEmpty
+                    ? null
+                    : () => _pickCategories(appState, allCategories),
+                icon: const Icon(Icons.filter_alt_outlined),
+                label: const Text('Выбрать'),
+              ),
+              if (selected.isNotEmpty)
+                OutlinedButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _selectedCategories = <String>[];
+                      _useAllQuestions = false;
+                    });
+                    _refreshAvailableCount(appState);
+                  },
+                  icon: const Icon(Icons.clear),
+                  label: const Text('Сбросить'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (selected.isEmpty)
+            const Text('Все категории')
+          else
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: selected
+                  .map((category) => Chip(label: Text(category)))
+                  .toList(growable: false),
             ),
-          )
-          .toList(growable: false),
-      selectedItemBuilder: (context) => appState.categories
-          .map(
-            (c) => Align(
-              alignment: Alignment.centerLeft,
-              child: Text(c, maxLines: 1, overflow: TextOverflow.ellipsis),
-            ),
-          )
-          .toList(growable: false),
-      onChanged: (value) {
-        if (value == null) {
-          return;
-        }
-        setState(() {
-          _category = value;
-          _useAllQuestions = false;
-        });
-        _refreshAvailableCount(appState);
-      },
+        ],
+      ),
     );
   }
 
@@ -374,6 +396,110 @@ class _StudyScreenState extends State<StudyScreen> {
         _refreshAvailableCount(appState);
       },
     );
+  }
+
+  Future<void> _pickCategories(
+    AppState appState,
+    List<String> allCategories,
+  ) async {
+    final initial = _selectedCategories.where(allCategories.contains).toSet();
+    final selected = Set<String>.from(initial);
+
+    final result = await showDialog<List<String>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Выберите компетенции'),
+          content: SizedBox(
+            width: 760,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: <Widget>[
+                    OutlinedButton(
+                      onPressed: () {
+                        setDialogState(() {
+                          selected
+                            ..clear()
+                            ..addAll(allCategories);
+                        });
+                      },
+                      child: const Text('Выбрать все'),
+                    ),
+                    OutlinedButton(
+                      onPressed: () {
+                        setDialogState(selected.clear);
+                      },
+                      child: const Text('Очистить'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 360,
+                  child: Scrollbar(
+                    thumbVisibility: true,
+                    child: ListView.builder(
+                      itemCount: allCategories.length,
+                      itemBuilder: (context, index) {
+                        final item = allCategories[index];
+                        final checked = selected.contains(item);
+                        return CheckboxListTile(
+                          dense: true,
+                          value: checked,
+                          title: Text(item),
+                          onChanged: (value) {
+                            setDialogState(() {
+                              if (value == true) {
+                                selected.add(item);
+                              } else {
+                                selected.remove(item);
+                              }
+                            });
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final ordered = allCategories
+                    .where(selected.contains)
+                    .toList(growable: false);
+                Navigator.of(context).pop(ordered);
+              },
+              child: const Text('Применить'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (!mounted || result == null) {
+      return;
+    }
+
+    final normalized = result.length == allCategories.length
+        ? <String>[]
+        : result;
+    setState(() {
+      _selectedCategories = normalized;
+      _useAllQuestions = false;
+    });
+    await _refreshAvailableCount(appState);
   }
 
   Widget _buildActiveSession(BuildContext context, AppState appState) {
@@ -899,9 +1025,10 @@ class _StudyScreenState extends State<StudyScreen> {
       _availableQuestionsLoading = true;
     });
     try {
+      final selectedCategories = _resolvedSelectedCategories(appState);
       final count = await appState.countQuestionsForMode(
         mode: _mode,
-        category: _category,
+        categories: selectedCategories,
         difficulty: _difficulty,
       );
       if (!mounted || requestId != _countRequestId) {
@@ -932,6 +1059,16 @@ class _StudyScreenState extends State<StudyScreen> {
         _hasLoadedAvailableQuestions = true;
       });
     }
+  }
+
+  List<String> _resolvedSelectedCategories(AppState appState) {
+    final allowed = appState.categories.toSet();
+    return _selectedCategories
+        .map((item) => item.trim())
+        .where(
+          (item) => item.isNotEmpty && item != 'Все' && allowed.contains(item),
+        )
+        .toList(growable: false);
   }
 
   void _resetCurrentSession(AppState appState) {

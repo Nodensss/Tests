@@ -427,6 +427,7 @@ class DatabaseService {
 
   Future<int> countQuestions({
     String? category,
+    List<String>? categories,
     int? difficulty,
     String? searchQuery,
     bool onlyHard = false,
@@ -438,14 +439,12 @@ class DatabaseService {
     if (onlyHard) {
       where.add('COALESCE(is_hard, 0) = 1');
     }
-    if (category != null &&
-        category.trim().isNotEmpty &&
-        category.trim() != 'Все') {
-      where.add(
-        "COALESCE(NULLIF(competency, ''), COALESCE(NULLIF(category, ''), 'Без категории')) = ?",
-      );
-      args.add(category.trim());
-    }
+    _addCategoryFilter(
+      where: where,
+      args: args,
+      category: category,
+      categories: categories,
+    );
     if (difficulty != null) {
       where.add('difficulty = ?');
       args.add(difficulty);
@@ -476,6 +475,7 @@ class DatabaseService {
 
   Future<List<Question>> getQuestions({
     String? category,
+    List<String>? categories,
     int? difficulty,
     String? searchQuery,
     bool onlyHard = false,
@@ -488,14 +488,12 @@ class DatabaseService {
     if (onlyHard) {
       where.add('COALESCE(is_hard, 0) = 1');
     }
-    if (category != null &&
-        category.trim().isNotEmpty &&
-        category.trim() != 'Все') {
-      where.add(
-        "COALESCE(NULLIF(competency, ''), COALESCE(NULLIF(category, ''), 'Без категории')) = ?",
-      );
-      args.add(category.trim());
-    }
+    _addCategoryFilter(
+      where: where,
+      args: args,
+      category: category,
+      categories: categories,
+    );
     if (difficulty != null) {
       where.add('difficulty = ?');
       args.add(difficulty);
@@ -533,11 +531,13 @@ class DatabaseService {
   Future<List<Question>> getRandomQuestions({
     int limit = 20,
     String? category,
+    List<String>? categories,
     int? difficulty,
     bool onlyHard = false,
   }) async {
     final rows = await getQuestions(
       category: category,
+      categories: categories,
       difficulty: difficulty,
       onlyHard: onlyHard,
       limit: 5000,
@@ -558,6 +558,33 @@ class DatabaseService {
       ORDER BY category
     ''');
     return rows.map((row) => row['category'].toString()).toList();
+  }
+
+  void _addCategoryFilter({
+    required List<String> where,
+    required List<Object?> args,
+    String? category,
+    List<String>? categories,
+  }) {
+    final normalized = <String>{
+      if (category != null &&
+          category.trim().isNotEmpty &&
+          category.trim() != 'Все')
+        category.trim(),
+      ...?categories
+          ?.map((item) => item.trim())
+          .where((item) => item.isNotEmpty && item != 'Все'),
+    }.toList(growable: false);
+
+    if (normalized.isEmpty) {
+      return;
+    }
+
+    final placeholders = List<String>.filled(normalized.length, '?').join(',');
+    where.add(
+      "COALESCE(NULLIF(competency, ''), COALESCE(NULLIF(category, ''), 'Без категории')) IN ($placeholders)",
+    );
+    args.addAll(normalized);
   }
 
   Future<String> startSession({

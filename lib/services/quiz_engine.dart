@@ -95,18 +95,37 @@ class QuizEngine {
     required StudyMode mode,
     required int limit,
     String? category,
+    List<String>? categories,
     int? difficulty,
   }) async {
+    final selectedCategories = <String>{
+      if (category != null &&
+          category.trim().isNotEmpty &&
+          category.trim() != 'Все')
+        category.trim(),
+      ...?categories
+          ?.map((item) => item.trim())
+          .where((item) => item.isNotEmpty && item != 'Все'),
+    }.toList(growable: false);
+
     switch (mode) {
       case StudyMode.review:
         final rows = await databaseService.questionsForReview(limit: limit);
         return rows.map(Question.fromMap).toList(growable: false);
       case StudyMode.weakSpots:
+        if (selectedCategories.isNotEmpty) {
+          return databaseService.getRandomQuestions(
+            limit: limit,
+            categories: selectedCategories,
+            difficulty: difficulty,
+          );
+        }
         final weak = await databaseService.weakestCategories(limit: 3);
         if (weak.isEmpty) {
           return databaseService.getRandomQuestions(
             limit: limit,
             category: category,
+            categories: selectedCategories,
             difficulty: difficulty,
           );
         }
@@ -117,6 +136,7 @@ class QuizEngine {
             await databaseService.getRandomQuestions(
               limit: chunk,
               category: item['category']?.toString(),
+              categories: selectedCategories,
               difficulty: difficulty,
             ),
           );
@@ -126,6 +146,7 @@ class QuizEngine {
       case StudyMode.categoryDrill:
         final byCategory = await databaseService.getQuestions(
           category: category,
+          categories: selectedCategories,
           difficulty: difficulty,
           limit: 5000,
         );
@@ -136,6 +157,7 @@ class QuizEngine {
         return databaseService.getRandomQuestions(
           limit: limit,
           category: category,
+          categories: selectedCategories,
           difficulty: difficulty,
           onlyHard: true,
         );
@@ -144,6 +166,7 @@ class QuizEngine {
         return databaseService.getRandomQuestions(
           limit: limit,
           category: category,
+          categories: selectedCategories,
           difficulty: difficulty,
         );
     }
