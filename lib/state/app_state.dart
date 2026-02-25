@@ -70,6 +70,76 @@ class UploadSimilarityMatch {
   final bool answerMatches;
 }
 
+enum DbQualityIssueType {
+  shortQuestion,
+  shortAnswer,
+  mixedNumericAndTextOptions,
+  multiValueAnswer,
+}
+
+extension DbQualityIssueTypeX on DbQualityIssueType {
+  String get label {
+    switch (this) {
+      case DbQualityIssueType.shortQuestion:
+        return 'Слишком короткий вопрос';
+      case DbQualityIssueType.shortAnswer:
+        return 'Слишком короткий ответ';
+      case DbQualityIssueType.mixedNumericAndTextOptions:
+        return 'Смешанный формат вариантов';
+      case DbQualityIssueType.multiValueAnswer:
+        return 'Несколько значений в ответе';
+    }
+  }
+}
+
+class DbQualityIssue {
+  const DbQualityIssue({
+    required this.type,
+    required this.question,
+    required this.category,
+    required this.details,
+  });
+
+  final DbQualityIssueType type;
+  final Question question;
+  final String category;
+  final String details;
+}
+
+class DbQualityCategoryStat {
+  const DbQualityCategoryStat({
+    required this.category,
+    required this.totalQuestions,
+    required this.issueCount,
+  });
+
+  final String category;
+  final int totalQuestions;
+  final int issueCount;
+}
+
+class DbQualityReport {
+  const DbQualityReport({
+    required this.totalQuestions,
+    required this.totalIssues,
+    required this.shortQuestionCount,
+    required this.shortAnswerCount,
+    required this.mixedOptionCount,
+    required this.multiValueAnswerCount,
+    required this.issues,
+    required this.categories,
+  });
+
+  final int totalQuestions;
+  final int totalIssues;
+  final int shortQuestionCount;
+  final int shortAnswerCount;
+  final int mixedOptionCount;
+  final int multiValueAnswerCount;
+  final List<DbQualityIssue> issues;
+  final List<DbQualityCategoryStat> categories;
+}
+
 enum AiProvider { openrouter, local }
 
 extension AiProviderX on AiProvider {
@@ -192,6 +262,7 @@ class AppState extends ChangeNotifier {
       <UploadSimilarityMatch>[];
   List<UploadSimilarityMatch> uploadAnswerMismatchQuestions =
       <UploadSimilarityMatch>[];
+  DbQualityReport? dbQualityReport;
 
   StudySessionState? studySession;
 
@@ -408,6 +479,61 @@ class AppState extends ChangeNotifier {
       return 0.0;
     }
     return intersection / union;
+  }
+
+  String _displayCategory(Question question) {
+    final competency = (question.competency ?? '').trim();
+    if (competency.isNotEmpty) {
+      return competency;
+    }
+    final category = (question.category ?? '').trim();
+    if (category.isNotEmpty) {
+      return category;
+    }
+    return 'Без категории';
+  }
+
+  bool _containsLetters(String value) {
+    return RegExp(
+      r'[a-zа-я]',
+      caseSensitive: false,
+      unicode: true,
+    ).hasMatch(value);
+  }
+
+  bool _isNumericLikeOption(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return false;
+    }
+    if (_containsLetters(trimmed)) {
+      return false;
+    }
+    final normalized = trimmed
+        .replaceAll(' ', '')
+        .replaceAll(',', '.')
+        .replaceAll('%', '')
+        .replaceAll('°', '');
+    return RegExp(r'^[+-]?\d+(\.\d+)?$').hasMatch(normalized);
+  }
+
+  bool _looksLikeMultiValueAnswer(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty || _isNumericLikeOption(trimmed)) {
+      return false;
+    }
+    final parts = trimmed
+        .split(
+          RegExp(
+            r'(,|;|/|\\|\bи\b|\bили\b|\bor\b)',
+            caseSensitive: false,
+            unicode: true,
+          ),
+        )
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+    return parts.length >= 2;
   }
 
   String _buildDuplicateKey(Question question) {
@@ -641,6 +767,168 @@ class AppState extends ChangeNotifier {
       await _rebuildUploadDatabaseStats(resetBusyState: true);
     } catch (e) {
       errorMessage = 'Ошибка сверки с базой: $e';
+    } finally {
+      _setBusyState(value: false);
+    }
+  }
+
+  Future<void> analyzeDatabaseQuality() async {
+    _setBusyState(
+      value: true,
+      title: 'Контроль качества БД',
+      details: 'Чтение вопросов',
+      progress: 0.0,
+      resetTimer: true,
+    );
+    errorMessage = null;
+    try {
+      final totalCount = await databaseService.questionsCount();
+      if (totalCount <= 0) {
+        dbQualityReport = const DbQualityReport(
+          totalQuestions: 0,
+          totalIssues: 0,
+          shortQuestionCount: 0,
+          shortAnswerCount: 0,
+          mixedOptionCount: 0,
+          multiValueAnswerCount: 0,
+          issues: <DbQualityIssue>[],
+          categories: <DbQualityCategoryStat>[],
+        );
+        notifyListeners();
+        return;
+      }
+
+      final questions = await databaseService.getQuestions(limit: totalCount);
+      final issues = <DbQualityIssue>[];
+      final categoryTotals = <String, int>{};
+      final categoryIssues = <String, int>{};
+      var shortQuestionCount = 0;
+      var shortAnswerCount = 0;
+      var mixedOptionCount = 0;
+      var multiValueAnswerCount = 0;
+
+      void addIssue({
+        required DbQualityIssueType type,
+        required Question question,
+        required String category,
+        required String details,
+      }) {
+        issues.add(
+          DbQualityIssue(
+            type: type,
+            question: question,
+            category: category,
+            details: details,
+          ),
+        );
+        categoryIssues[category] = (categoryIssues[category] ?? 0) + 1;
+      }
+
+      for (var i = 0; i < questions.length; i++) {
+        final question = questions[i];
+        final category = _displayCategory(question);
+        categoryTotals[category] = (categoryTotals[category] ?? 0) + 1;
+
+        final questionCompact = _normalizeForComparison(
+          question.questionText,
+        ).replaceAll(' ', '');
+        final answerCompact = _normalizeForComparison(
+          question.correctAnswer,
+        ).replaceAll(' ', '');
+
+        if (questionCompact.length <= 1) {
+          shortQuestionCount += 1;
+          addIssue(
+            type: DbQualityIssueType.shortQuestion,
+            question: question,
+            category: category,
+            details: 'Текст вопроса очень короткий: "${question.questionText}"',
+          );
+        }
+        if (answerCompact.length <= 1) {
+          shortAnswerCount += 1;
+          addIssue(
+            type: DbQualityIssueType.shortAnswer,
+            question: question,
+            category: category,
+            details: 'Текст правильного ответа очень короткий.',
+          );
+        }
+
+        final options = <String>[
+          question.correctAnswer,
+          ...question.wrongAnswers,
+        ].map((item) => item.trim()).where((item) => item.isNotEmpty).toSet();
+        final numericCount = options
+            .where((item) => _isNumericLikeOption(item))
+            .length;
+        final textCount = options
+            .where(
+              (item) => _containsLetters(item) && !_isNumericLikeOption(item),
+            )
+            .length;
+        if (numericCount >= 2 && textCount >= 1) {
+          mixedOptionCount += 1;
+          addIssue(
+            type: DbQualityIssueType.mixedNumericAndTextOptions,
+            question: question,
+            category: category,
+            details:
+                'В вариантах ответа смешаны числовые и текстовые форматы (числовых: $numericCount, текстовых: $textCount).',
+          );
+        }
+
+        if (_looksLikeMultiValueAnswer(question.correctAnswer)) {
+          multiValueAnswerCount += 1;
+          addIssue(
+            type: DbQualityIssueType.multiValueAnswer,
+            question: question,
+            category: category,
+            details: 'В правильном ответе несколько значений/частей.',
+          );
+        }
+
+        if ((i + 1) % 100 == 0 || i + 1 == questions.length) {
+          _setBusyState(
+            value: true,
+            title: 'Контроль качества БД',
+            details: 'Проверка вопросов: ${i + 1}/${questions.length}',
+            progress: ((i + 1) / questions.length).clamp(0.0, 1.0),
+          );
+        }
+      }
+
+      final categories =
+          categoryTotals.entries
+              .map(
+                (entry) => DbQualityCategoryStat(
+                  category: entry.key,
+                  totalQuestions: entry.value,
+                  issueCount: categoryIssues[entry.key] ?? 0,
+                ),
+              )
+              .toList(growable: false)
+            ..sort((a, b) {
+              final byIssues = b.issueCount.compareTo(a.issueCount);
+              if (byIssues != 0) {
+                return byIssues;
+              }
+              return b.totalQuestions.compareTo(a.totalQuestions);
+            });
+
+      dbQualityReport = DbQualityReport(
+        totalQuestions: questions.length,
+        totalIssues: issues.length,
+        shortQuestionCount: shortQuestionCount,
+        shortAnswerCount: shortAnswerCount,
+        mixedOptionCount: mixedOptionCount,
+        multiValueAnswerCount: multiValueAnswerCount,
+        issues: issues,
+        categories: categories,
+      );
+      notifyListeners();
+    } catch (e) {
+      errorMessage = 'Ошибка анализа качества БД: $e';
     } finally {
       _setBusyState(value: false);
     }
@@ -943,6 +1231,7 @@ class AppState extends ChangeNotifier {
       uploadNewQuestions = <Question>[];
       uploadSimilarQuestions = <UploadSimilarityMatch>[];
       uploadAnswerMismatchQuestions = <UploadSimilarityMatch>[];
+      dbQualityReport = null;
       studySession = null;
       await refreshDashboard();
     } catch (e) {

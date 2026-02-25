@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -498,7 +499,7 @@ class _StudyScreenState extends State<StudyScreen> {
                   ],
                 ),
                 const SizedBox(height: 6),
-                Text(
+                SelectableText(
                   question.questionText,
                   style: const TextStyle(
                     fontSize: 19,
@@ -1017,6 +1018,15 @@ class _StudyScreenState extends State<StudyScreen> {
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: onTap,
+        onLongPress: () async {
+          await Clipboard.setData(ClipboardData(text: text));
+          if (!mounted) {
+            return;
+          }
+          ScaffoldMessenger.of(this.context).showSnackBar(
+            const SnackBar(content: Text('Текст ответа скопирован')),
+          );
+        },
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),

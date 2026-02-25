@@ -14,6 +14,7 @@ class CompareScreen extends StatelessWidget {
     final similar = appState.uploadSimilarQuestions;
     final mismatches = appState.uploadAnswerMismatchQuestions;
     final pureNew = appState.uploadNewQuestions;
+    final quality = appState.dbQualityReport;
 
     return SelectionArea(
       child: ListView(
@@ -52,6 +53,13 @@ class CompareScreen extends StatelessWidget {
                             'В загрузке: ${appState.uploadQuestions.length}',
                           ),
                         ),
+                      FilledButton.tonalIcon(
+                        onPressed: appState.busy
+                            ? null
+                            : appState.analyzeDatabaseQuality,
+                        icon: const Icon(Icons.health_and_safety_outlined),
+                        label: const Text('Анализ качества БД'),
+                      ),
                     ],
                   ),
                   if (appState.uploadQuestions.isEmpty) ...<Widget>[
@@ -118,6 +126,10 @@ class CompareScreen extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             _PureNewSection(questions: pureNew),
+          ],
+          if (quality != null) ...<Widget>[
+            const SizedBox(height: 8),
+            _DatabaseQualitySection(report: quality),
           ],
         ],
       ),
@@ -248,6 +260,126 @@ class _MatchesSection extends StatelessWidget {
             if (matches.length > 200)
               Text(
                 'Показаны первые 200 из ${matches.length}.',
+                style: TextStyle(color: Colors.grey.shade400),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DatabaseQualitySection extends StatelessWidget {
+  const _DatabaseQualitySection({required this.report});
+
+  final DbQualityReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text(
+              'Контроль качества существующей БД',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: <Widget>[
+                _MetricItem(
+                  title: 'Всего вопросов в БД',
+                  value: '${report.totalQuestions}',
+                ),
+                _MetricItem(
+                  title: 'Всего найдено проблем',
+                  value: '${report.totalIssues}',
+                ),
+                _MetricItem(
+                  title: 'Короткий вопрос',
+                  value: '${report.shortQuestionCount}',
+                ),
+                _MetricItem(
+                  title: 'Короткий ответ',
+                  value: '${report.shortAnswerCount}',
+                ),
+                _MetricItem(
+                  title: 'Смешанные варианты',
+                  value: '${report.mixedOptionCount}',
+                ),
+                _MetricItem(
+                  title: 'Ответ из нескольких частей',
+                  value: '${report.multiValueAnswerCount}',
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Разбивка проблем по категориям',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            if (report.categories.isEmpty)
+              const Text('Нет данных')
+            else
+              ...report.categories
+                  .take(20)
+                  .map(
+                    (row) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: SelectableText(
+                        '${row.category}: проблем ${row.issueCount}, всего вопросов ${row.totalQuestions}',
+                      ),
+                    ),
+                  ),
+            if (report.categories.length > 20)
+              Text(
+                'Показаны первые 20 из ${report.categories.length}.',
+                style: TextStyle(color: Colors.grey.shade400),
+              ),
+            const SizedBox(height: 12),
+            Text(
+              'Примеры проблемных вопросов (${report.issues.length})',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            if (report.issues.isEmpty)
+              const Text('Проблемы не найдены')
+            else
+              ...report.issues.take(200).map((issue) {
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white24),
+                    color: Colors.orange.withValues(alpha: 0.08),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        issue.type.label,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 4),
+                      SelectableText(issue.details),
+                      const SizedBox(height: 4),
+                      SelectableText('Категория: ${issue.category}'),
+                      const SizedBox(height: 4),
+                      SelectableText('Вопрос: ${issue.question.questionText}'),
+                      SelectableText('Ответ: ${issue.question.correctAnswer}'),
+                    ],
+                  ),
+                );
+              }),
+            if (report.issues.length > 200)
+              Text(
+                'Показаны первые 200 из ${report.issues.length}.',
                 style: TextStyle(color: Colors.grey.shade400),
               ),
           ],
