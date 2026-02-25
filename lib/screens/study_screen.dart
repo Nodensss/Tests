@@ -1321,7 +1321,9 @@ class _QuizFullscreenPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0E1117),
-      body: const SafeArea(child: StudyScreen(immersiveMode: true)),
+      body: const SafeArea(
+        child: SelectionArea(child: StudyScreen(immersiveMode: true)),
+      ),
     );
   }
 }

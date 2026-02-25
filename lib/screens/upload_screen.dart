@@ -311,7 +311,11 @@ class _UploadScreenState extends State<UploadScreen> {
                           'Всего в загрузке: ${dbStats.totalRows} · уникальных: ${dbStats.uniqueRows} · повторов в загрузке: ${dbStats.duplicateRowsInUpload}',
                         ),
                         Text(
-                          'Уже есть в базе: ${dbStats.alreadyInDatabase} · новых для добавления: ${dbStats.newForDatabase}',
+                          'Уже есть в базе: ${dbStats.alreadyInDatabase} · похожие (>=60%): ${dbStats.similarByQuestionText} · конфликт ответа: ${dbStats.answerMismatches}',
+                          style: TextStyle(color: Colors.grey.shade300),
+                        ),
+                        Text(
+                          'Чисто новые: ${dbStats.pureNew} · всего новых/обновляемых: ${dbStats.newForDatabase}',
                           style: TextStyle(color: Colors.grey.shade300),
                         ),
                         const SizedBox(height: 6),
@@ -320,7 +324,7 @@ class _UploadScreenState extends State<UploadScreen> {
                           runSpacing: 8,
                           children: <Widget>[
                             TextButton.icon(
-                              onPressed: dbStats.newForDatabase == 0
+                              onPressed: dbStats.pureNew == 0
                                   ? null
                                   : () => _showNewQuestionsDialog(
                                       context,
@@ -328,7 +332,7 @@ class _UploadScreenState extends State<UploadScreen> {
                                     ),
                               icon: const Icon(Icons.playlist_add_check),
                               label: Text(
-                                'Показать новые (${dbStats.newForDatabase})',
+                                'Показать чисто новые (${dbStats.pureNew})',
                               ),
                             ),
                           ],
@@ -455,63 +459,68 @@ class _UploadScreenState extends State<UploadScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Дубли в загруженных вопросах'),
-        content: SizedBox(
-          width: 920,
-          height: 500,
-          child: groups.isEmpty
-              ? const Center(child: Text('Дубли не найдены.'))
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      'Групп дублей: ${groups.length}, лишних строк: $duplicateRows',
-                    ),
-                    const SizedBox(height: 10),
-                    Expanded(
-                      child: ListView.separated(
-                        itemCount: groups.length,
-                        separatorBuilder: (_, __) => const Divider(height: 16),
-                        itemBuilder: (context, index) {
-                          final item = groups[index];
-                          final sourceText = item.sources.join(', ');
-                          final wrong1 = item.wrongAnswers.isNotEmpty
-                              ? item.wrongAnswers[0]
-                              : '';
-                          final wrong2 = item.wrongAnswers.length > 1
-                              ? item.wrongAnswers[1]
-                              : '';
-                          final wrong3 = item.wrongAnswers.length > 2
-                              ? item.wrongAnswers[2]
-                              : '';
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: <Widget>[
-                              Text(
-                                '${index + 1}. Повторений: ${item.count} (лишних ${item.duplicatesOnly})',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text('Вопрос: ${item.questionText}'),
-                              Text('Правильный: ${item.correctAnswer}'),
-                              if (wrong1.trim().isNotEmpty)
-                                Text('Неправильный 1: $wrong1'),
-                              if (wrong2.trim().isNotEmpty)
-                                Text('Неправильный 2: $wrong2'),
-                              if (wrong3.trim().isNotEmpty)
-                                Text('Неправильный 3: $wrong3'),
-                              Text(
-                                'Источники: $sourceText',
-                                style: TextStyle(color: Colors.grey.shade300),
-                              ),
-                            ],
-                          );
-                        },
+        content: SelectionArea(
+          child: SizedBox(
+            width: 920,
+            height: 500,
+            child: groups.isEmpty
+                ? const Center(child: Text('Дубли не найдены.'))
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      SelectableText(
+                        'Групп дублей: ${groups.length}, лишних строк: $duplicateRows',
                       ),
-                    ),
-                  ],
-                ),
+                      const SizedBox(height: 10),
+                      Expanded(
+                        child: ListView.separated(
+                          itemCount: groups.length,
+                          separatorBuilder: (_, __) =>
+                              const Divider(height: 16),
+                          itemBuilder: (context, index) {
+                            final item = groups[index];
+                            final sourceText = item.sources.join(', ');
+                            final wrong1 = item.wrongAnswers.isNotEmpty
+                                ? item.wrongAnswers[0]
+                                : '';
+                            final wrong2 = item.wrongAnswers.length > 1
+                                ? item.wrongAnswers[1]
+                                : '';
+                            final wrong3 = item.wrongAnswers.length > 2
+                                ? item.wrongAnswers[2]
+                                : '';
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                SelectableText(
+                                  '${index + 1}. Повторений: ${item.count} (лишних ${item.duplicatesOnly})',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                SelectableText('Вопрос: ${item.questionText}'),
+                                SelectableText(
+                                  'Правильный: ${item.correctAnswer}',
+                                ),
+                                if (wrong1.trim().isNotEmpty)
+                                  SelectableText('Неправильный 1: $wrong1'),
+                                if (wrong2.trim().isNotEmpty)
+                                  SelectableText('Неправильный 2: $wrong2'),
+                                if (wrong3.trim().isNotEmpty)
+                                  SelectableText('Неправильный 3: $wrong3'),
+                                SelectableText(
+                                  'Источники: $sourceText',
+                                  style: TextStyle(color: Colors.grey.shade300),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
         ),
         actions: <Widget>[
           TextButton(
@@ -531,50 +540,59 @@ class _UploadScreenState extends State<UploadScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Новые вопросы для добавления'),
-        content: SizedBox(
-          width: 920,
-          height: 520,
-          child: questions.isEmpty
-              ? const Center(child: Text('Новых вопросов не найдено.'))
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text('Найдено новых вопросов: ${questions.length}'),
-                    const SizedBox(height: 10),
-                    Expanded(
-                      child: ListView.separated(
-                        itemCount: questions.length,
-                        separatorBuilder: (_, __) => const Divider(height: 16),
-                        itemBuilder: (context, index) {
-                          final item = questions[index];
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: <Widget>[
-                              Text(
-                                '${index + 1}. ${item.questionText}',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text('Правильный: ${item.correctAnswer}'),
-                              if ((item.competency ?? '').trim().isNotEmpty)
-                                Text('Компетенция: ${item.competency}'),
-                              if ((item.sourceFile ?? '').trim().isNotEmpty)
-                                Text(
-                                  'Источник: ${item.sourceFile}',
-                                  style: TextStyle(
-                                    color: Colors.grey.shade300,
-                                    fontSize: 12,
+        content: SelectionArea(
+          child: SizedBox(
+            width: 920,
+            height: 520,
+            child: questions.isEmpty
+                ? const Center(child: Text('Новых вопросов не найдено.'))
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      SelectableText(
+                        'Найдено новых вопросов: ${questions.length}',
+                      ),
+                      const SizedBox(height: 10),
+                      Expanded(
+                        child: ListView.separated(
+                          itemCount: questions.length,
+                          separatorBuilder: (_, __) =>
+                              const Divider(height: 16),
+                          itemBuilder: (context, index) {
+                            final item = questions[index];
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                SelectableText(
+                                  '${index + 1}. ${item.questionText}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
                                   ),
                                 ),
-                            ],
-                          );
-                        },
+                                const SizedBox(height: 4),
+                                SelectableText(
+                                  'Правильный: ${item.correctAnswer}',
+                                ),
+                                if ((item.competency ?? '').trim().isNotEmpty)
+                                  SelectableText(
+                                    'Компетенция: ${item.competency}',
+                                  ),
+                                if ((item.sourceFile ?? '').trim().isNotEmpty)
+                                  SelectableText(
+                                    'Источник: ${item.sourceFile}',
+                                    style: TextStyle(
+                                      color: Colors.grey.shade300,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                              ],
+                            );
+                          },
+                        ),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
+          ),
         ),
         actions: <Widget>[
           TextButton(

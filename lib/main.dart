@@ -6,7 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 
-import 'screens/analytics_screen.dart';
+import 'screens/compare_screen.dart';
 import 'screens/hard_questions_screen.dart';
 import 'screens/library_screen.dart';
 import 'screens/study_screen.dart';
@@ -67,7 +67,7 @@ class _HomeShellState extends State<HomeShell> {
   static const _titles = <String>[
     'Upload',
     'Study',
-    'Analytics',
+    'Compare',
     'Hard',
     'Library',
   ];
@@ -78,7 +78,7 @@ class _HomeShellState extends State<HomeShell> {
     final screens = <Widget>[
       const UploadScreen(),
       const StudyScreen(),
-      const AnalyticsScreen(),
+      const CompareScreen(),
       const HardQuestionsScreen(),
       const LibraryScreen(),
     ];
@@ -97,7 +97,7 @@ class _HomeShellState extends State<HomeShell> {
       body: Column(
         children: <Widget>[
           _DashboardStrip(appState: appState),
-          Expanded(child: screens[_currentIndex]),
+          Expanded(child: SelectionArea(child: screens[_currentIndex])),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -119,9 +119,9 @@ class _HomeShellState extends State<HomeShell> {
             label: 'Study',
           ),
           NavigationDestination(
-            icon: Icon(Icons.analytics_outlined),
-            selectedIcon: Icon(Icons.analytics),
-            label: 'Analytics',
+            icon: Icon(Icons.compare_arrows_outlined),
+            selectedIcon: Icon(Icons.compare_arrows),
+            label: 'Compare',
           ),
           NavigationDestination(
             icon: Icon(Icons.bookmarks_outlined),

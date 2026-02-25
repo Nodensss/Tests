@@ -40,6 +40,9 @@ class UploadDatabaseStats {
     required this.uniqueRows,
     required this.duplicateRowsInUpload,
     required this.alreadyInDatabase,
+    required this.similarByQuestionText,
+    required this.answerMismatches,
+    required this.pureNew,
     required this.newForDatabase,
   });
 
@@ -47,7 +50,24 @@ class UploadDatabaseStats {
   final int uniqueRows;
   final int duplicateRowsInUpload;
   final int alreadyInDatabase;
+  final int similarByQuestionText;
+  final int answerMismatches;
+  final int pureNew;
   final int newForDatabase;
+}
+
+class UploadSimilarityMatch {
+  const UploadSimilarityMatch({
+    required this.incoming,
+    required this.existing,
+    required this.similarity,
+    required this.answerMatches,
+  });
+
+  final Question incoming;
+  final Question existing;
+  final double similarity;
+  final bool answerMatches;
 }
 
 enum AiProvider { openrouter, local }
@@ -168,6 +188,10 @@ class AppState extends ChangeNotifier {
   int? lastSaveChangedCount;
   UploadDatabaseStats? uploadDatabaseStats;
   List<Question> uploadNewQuestions = <Question>[];
+  List<UploadSimilarityMatch> uploadSimilarQuestions =
+      <UploadSimilarityMatch>[];
+  List<UploadSimilarityMatch> uploadAnswerMismatchQuestions =
+      <UploadSimilarityMatch>[];
 
   StudySessionState? studySession;
 
@@ -354,6 +378,38 @@ class AppState extends ChangeNotifier {
     return value.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
+  String _normalizeForComparison(String value) {
+    final lowered = value.toLowerCase().trim();
+    final cleaned = lowered.replaceAll(
+      RegExp(r'[^a-zа-я0-9 ]', unicode: true),
+      ' ',
+    );
+    return cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  Set<String> _tokenizeForComparison(String value) {
+    final normalized = _normalizeForComparison(value);
+    if (normalized.isEmpty) {
+      return <String>{};
+    }
+    return normalized.split(' ').where((token) => token.length >= 2).toSet();
+  }
+
+  double _jaccardSimilarity(Set<String> a, Set<String> b) {
+    if (a.isEmpty || b.isEmpty) {
+      return 0.0;
+    }
+    final intersection = a.intersection(b).length.toDouble();
+    if (intersection == 0) {
+      return 0.0;
+    }
+    final union = a.union(b).length.toDouble();
+    if (union == 0) {
+      return 0.0;
+    }
+    return intersection / union;
+  }
+
   String _buildDuplicateKey(Question question) {
     final wrong = List<String>.from(question.wrongAnswers);
     while (wrong.length < 3) {
@@ -424,6 +480,8 @@ class AppState extends ChangeNotifier {
     if (uploadQuestions.isEmpty) {
       uploadDatabaseStats = null;
       uploadNewQuestions = <Question>[];
+      uploadSimilarQuestions = <UploadSimilarityMatch>[];
+      uploadAnswerMismatchQuestions = <UploadSimilarityMatch>[];
       notifyListeners();
       return;
     }
@@ -471,12 +529,90 @@ class AppState extends ChangeNotifier {
     );
 
     var alreadyInDatabase = 0;
-    final newQuestions = <Question>[];
+    final candidatesForSimilarity = <Question>[];
     for (final entry in uniqueByKey.entries) {
       if (dbKeys.contains(entry.key)) {
         alreadyInDatabase += 1;
       } else {
-        newQuestions.add(entry.value);
+        candidatesForSimilarity.add(entry.value);
+      }
+    }
+
+    _setBusyState(
+      value: true,
+      title: 'Сверка с БД',
+      details: 'Подготовка похожих вопросов',
+      progress: 0.92,
+    );
+
+    final dbPool = await databaseService.getQuestions(limit: 50000);
+    final dbTokenSets = <Set<String>>[];
+    final tokenToDbIndexes = <String, Set<int>>{};
+    for (var i = 0; i < dbPool.length; i++) {
+      final tokens = _tokenizeForComparison(dbPool[i].questionText);
+      dbTokenSets.add(tokens);
+      for (final token in tokens) {
+        tokenToDbIndexes.putIfAbsent(token, () => <int>{}).add(i);
+      }
+    }
+
+    const threshold = 0.60;
+    final similarMatches = <UploadSimilarityMatch>[];
+    final mismatchMatches = <UploadSimilarityMatch>[];
+    final pureNewQuestions = <Question>[];
+
+    final totalCandidates = candidatesForSimilarity.length;
+    for (var i = 0; i < totalCandidates; i++) {
+      final incoming = candidatesForSimilarity[i];
+      final incomingTokens = _tokenizeForComparison(incoming.questionText);
+
+      final candidateIndexes = <int>{};
+      for (final token in incomingTokens) {
+        final idxs = tokenToDbIndexes[token];
+        if (idxs != null) {
+          candidateIndexes.addAll(idxs);
+        }
+      }
+
+      double bestScore = 0.0;
+      Question? bestQuestion;
+      for (final dbIndex in candidateIndexes) {
+        final score = _jaccardSimilarity(incomingTokens, dbTokenSets[dbIndex]);
+        if (score > bestScore) {
+          bestScore = score;
+          bestQuestion = dbPool[dbIndex];
+        }
+      }
+
+      if (bestQuestion != null && bestScore >= threshold) {
+        final sameAnswer =
+            _normalizeForComparison(incoming.correctAnswer) ==
+            _normalizeForComparison(bestQuestion.correctAnswer);
+        final match = UploadSimilarityMatch(
+          incoming: incoming,
+          existing: bestQuestion,
+          similarity: bestScore,
+          answerMatches: sameAnswer,
+        );
+        if (sameAnswer) {
+          similarMatches.add(match);
+        } else {
+          mismatchMatches.add(match);
+        }
+      } else {
+        pureNewQuestions.add(incoming);
+      }
+
+      if ((i + 1) % 20 == 0 || i + 1 == totalCandidates) {
+        final ratio = totalCandidates == 0
+            ? 1.0
+            : ((i + 1) / totalCandidates).clamp(0.0, 1.0);
+        _setBusyState(
+          value: true,
+          title: 'Сверка с БД',
+          details: 'Поиск похожих: ${i + 1}/$totalCandidates',
+          progress: (0.92 + ratio * 0.08).clamp(0.0, 1.0),
+        );
       }
     }
 
@@ -485,9 +621,14 @@ class AppState extends ChangeNotifier {
       uniqueRows: uniqueByKey.length,
       duplicateRowsInUpload: uploadQuestions.length - uniqueByKey.length,
       alreadyInDatabase: alreadyInDatabase,
-      newForDatabase: newQuestions.length,
+      similarByQuestionText: similarMatches.length,
+      answerMismatches: mismatchMatches.length,
+      pureNew: pureNewQuestions.length,
+      newForDatabase: candidatesForSimilarity.length,
     );
-    uploadNewQuestions = newQuestions;
+    uploadNewQuestions = pureNewQuestions;
+    uploadSimilarQuestions = similarMatches;
+    uploadAnswerMismatchQuestions = mismatchMatches;
     notifyListeners();
   }
 
@@ -518,6 +659,8 @@ class AppState extends ChangeNotifier {
     errorMessage = null;
     uploadDatabaseStats = null;
     uploadNewQuestions = <Question>[];
+    uploadSimilarQuestions = <UploadSimilarityMatch>[];
+    uploadAnswerMismatchQuestions = <UploadSimilarityMatch>[];
 
     try {
       final parsed = <Question>[];
@@ -774,6 +917,8 @@ class AppState extends ChangeNotifier {
     lastSaveChangedCount = null;
     uploadDatabaseStats = null;
     uploadNewQuestions = <Question>[];
+    uploadSimilarQuestions = <UploadSimilarityMatch>[];
+    uploadAnswerMismatchQuestions = <UploadSimilarityMatch>[];
     notifyListeners();
   }
 
@@ -796,6 +941,8 @@ class AppState extends ChangeNotifier {
       lastSaveChangedCount = null;
       uploadDatabaseStats = null;
       uploadNewQuestions = <Question>[];
+      uploadSimilarQuestions = <UploadSimilarityMatch>[];
+      uploadAnswerMismatchQuestions = <UploadSimilarityMatch>[];
       studySession = null;
       await refreshDashboard();
     } catch (e) {
