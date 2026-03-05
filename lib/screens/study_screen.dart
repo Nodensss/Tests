@@ -955,9 +955,11 @@ class _StudyScreenState extends State<StudyScreen> {
 
   Widget _buildSessionSummary(BuildContext context, AppState appState) {
     final session = appState.studySession!;
+    final wrongIndexes = appState.wrongQuizQuestionIndexes();
     final accuracy = session.questions.isEmpty
         ? 0.0
         : (session.correctCount / session.questions.length) * 100;
+    final accuracyValue = (accuracy / 100).clamp(0.0, 1.0);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
@@ -975,7 +977,11 @@ class _StudyScreenState extends State<StudyScreen> {
                 const SizedBox(height: 8),
                 Text('Правильных: ${session.correctCount}'),
                 Text('Всего: ${session.questions.length}'),
-                Text('Точность: ${accuracy.toStringAsFixed(1)}%'),
+                Text(
+                  'Процент правильных ответов: ${accuracy.toStringAsFixed(1)}% / 100%',
+                ),
+                const SizedBox(height: 8),
+                LinearProgressIndicator(value: accuracyValue),
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 8,
@@ -1009,8 +1015,69 @@ class _StudyScreenState extends State<StudyScreen> {
                       },
                       child: const Text('Новая сессия'),
                     ),
+                    if (wrongIndexes.isNotEmpty)
+                      FilledButton.tonalIcon(
+                        onPressed: () async {
+                          final error = await appState
+                              .startRetryWrongAnswersSession();
+                          if (!context.mounted) {
+                            return;
+                          }
+                          if (error != null) {
+                            ScaffoldMessenger.of(
+                              context,
+                            ).showSnackBar(SnackBar(content: Text(error)));
+                          } else {
+                            setState(() {
+                              _selectedOption = null;
+                              _explanation = null;
+                              _memoryTip = null;
+                              _optionsCache.clear();
+                            });
+                          }
+                        },
+                        icon: const Icon(Icons.replay),
+                        label: Text('Тест по ошибкам (${wrongIndexes.length})'),
+                      ),
                   ],
                 ),
+                const SizedBox(height: 12),
+                Text(
+                  'Ошибочные ответы (${wrongIndexes.length})',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 8),
+                if (wrongIndexes.isEmpty)
+                  const Text('Ошибок нет.')
+                else
+                  ...wrongIndexes.map((index) {
+                    final question = session.questions[index];
+                    final userAnswer =
+                        session.quizSelectedOptions[index] ?? 'Нет ответа';
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.redAccent),
+                        color: Colors.redAccent.withValues(alpha: 0.08),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          SelectableText(
+                            '${index + 1}. ${question.questionText}',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 4),
+                          SelectableText('Ваш ответ: $userAnswer'),
+                          SelectableText(
+                            'Правильный ответ: ${question.correctAnswer}',
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
               ],
             ),
           ),

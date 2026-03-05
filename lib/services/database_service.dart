@@ -868,6 +868,15 @@ class DatabaseService {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  Future<void> deleteCache(String cacheKey) async {
+    final db = await database;
+    await db.delete(
+      'ai_cache',
+      where: 'cache_key = ?',
+      whereArgs: <Object?>[cacheKey],
+    );
+  }
+
   Future<void> clearAllData() async {
     final db = await database;
     await db.transaction((txn) async {

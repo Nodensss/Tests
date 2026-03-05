@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
@@ -204,6 +205,7 @@ class StudySessionState {
 
 class AppState extends ChangeNotifier {
   static const _BusyProgressMarker _progressUnset = _BusyProgressMarker();
+  static const String _studySessionCacheKey = 'session:active_study';
 
   AppState()
     : databaseService = DatabaseService.instance,
@@ -273,6 +275,7 @@ class AppState extends ChangeNotifier {
     await databaseService.database;
     await _loadAiPromptSettings();
     await refreshDashboard();
+    await _restoreStudySessionSnapshot();
     initialized = true;
     notifyListeners();
   }
@@ -343,6 +346,251 @@ class AppState extends ChangeNotifier {
       }
       aiUseInternetSearch = useInternetSearch != '0';
     } catch (_) {}
+  }
+
+  String _studyModeName(StudyMode mode) {
+    switch (mode) {
+      case StudyMode.quiz:
+        return 'quiz';
+      case StudyMode.flashcards:
+        return 'flashcards';
+      case StudyMode.review:
+        return 'review';
+      case StudyMode.categoryDrill:
+        return 'category_drill';
+      case StudyMode.weakSpots:
+        return 'weak_spots';
+      case StudyMode.hardQuestions:
+        return 'hard_questions';
+    }
+  }
+
+  StudyMode? _studyModeFromName(String raw) {
+    switch (raw.trim().toLowerCase()) {
+      case 'quiz':
+        return StudyMode.quiz;
+      case 'flashcard':
+      case 'flashcards':
+        return StudyMode.flashcards;
+      case 'review':
+        return StudyMode.review;
+      case 'category_drill':
+        return StudyMode.categoryDrill;
+      case 'weak_spots':
+        return StudyMode.weakSpots;
+      case 'hard_questions':
+        return StudyMode.hardQuestions;
+      default:
+        return null;
+    }
+  }
+
+  Map<String, String> _mapIntStringToJson(Map<int, String> source) {
+    final result = <String, String>{};
+    for (final entry in source.entries) {
+      result[entry.key.toString()] = entry.value;
+    }
+    return result;
+  }
+
+  Map<String, Object> _mapIntBoolToJson(Map<int, bool> source) {
+    final result = <String, Object>{};
+    for (final entry in source.entries) {
+      result[entry.key.toString()] = entry.value;
+    }
+    return result;
+  }
+
+  Map<String, Object> _mapIntDoubleToJson(Map<int, double> source) {
+    final result = <String, Object>{};
+    for (final entry in source.entries) {
+      result[entry.key.toString()] = entry.value;
+    }
+    return result;
+  }
+
+  Map<int, String> _jsonToIntStringMap(Object? source) {
+    if (source is! Map) {
+      return <int, String>{};
+    }
+    final result = <int, String>{};
+    source.forEach((key, value) {
+      final parsedKey = int.tryParse(key.toString());
+      if (parsedKey == null) {
+        return;
+      }
+      result[parsedKey] = value?.toString() ?? '';
+    });
+    return result;
+  }
+
+  Map<int, bool> _jsonToIntBoolMap(Object? source) {
+    if (source is! Map) {
+      return <int, bool>{};
+    }
+    final result = <int, bool>{};
+    source.forEach((key, value) {
+      final parsedKey = int.tryParse(key.toString());
+      if (parsedKey == null) {
+        return;
+      }
+      if (value is bool) {
+        result[parsedKey] = value;
+      } else {
+        result[parsedKey] = value.toString().toLowerCase() == 'true';
+      }
+    });
+    return result;
+  }
+
+  Map<int, double> _jsonToIntDoubleMap(Object? source) {
+    if (source is! Map) {
+      return <int, double>{};
+    }
+    final result = <int, double>{};
+    source.forEach((key, value) {
+      final parsedKey = int.tryParse(key.toString());
+      if (parsedKey == null) {
+        return;
+      }
+      result[parsedKey] = double.tryParse(value.toString()) ?? 0;
+    });
+    return result;
+  }
+
+  Map<String, Object?> _serializeStudySession(StudySessionState session) {
+    return <String, Object?>{
+      'v': 1,
+      'mode': _studyModeName(session.mode),
+      'session_id': session.sessionId,
+      'questions': session.questions
+          .map((question) => question.toMap())
+          .toList(growable: false),
+      'current_index': session.currentIndex,
+      'correct_count': session.correctCount,
+      'answered_current': session.answeredCurrent,
+      'show_answer': session.showAnswer,
+      'started_at_current': session.startedAtCurrent.toIso8601String(),
+      'last_is_correct': session.lastIsCorrect,
+      'last_time_seconds': session.lastTimeSeconds,
+      'explanations': _mapIntStringToJson(session.explanations),
+      'memory_tips': _mapIntStringToJson(session.memoryTips),
+      'internet_contexts': _mapIntStringToJson(session.internetContexts),
+      'quiz_selected_options': _mapIntStringToJson(session.quizSelectedOptions),
+      'quiz_is_correct': _mapIntBoolToJson(session.quizIsCorrectByIndex),
+      'quiz_time_seconds': _mapIntDoubleToJson(session.quizTimeSecondsByIndex),
+      'finalized': session.finalized,
+    };
+  }
+
+  StudySessionState? _deserializeStudySession(Map<String, Object?> payload) {
+    final mode = _studyModeFromName((payload['mode'] ?? '').toString());
+    if (mode == null) {
+      return null;
+    }
+    final sessionId = (payload['session_id'] ?? '').toString().trim();
+    if (sessionId.isEmpty) {
+      return null;
+    }
+    final questionsRaw = payload['questions'];
+    if (questionsRaw is! List) {
+      return null;
+    }
+    final questions = <Question>[];
+    for (final item in questionsRaw) {
+      if (item is Map<String, Object?>) {
+        questions.add(Question.fromMap(item));
+      } else if (item is Map) {
+        final mapped = item.map(
+          (key, value) => MapEntry(key.toString(), value as Object?),
+        );
+        questions.add(Question.fromMap(mapped));
+      }
+    }
+    if (questions.isEmpty) {
+      return null;
+    }
+
+    final currentIndex = int.tryParse(
+      (payload['current_index'] ?? '0').toString(),
+    );
+    final clampedIndex = (currentIndex ?? 0).clamp(0, questions.length);
+
+    return StudySessionState(
+      mode: mode,
+      sessionId: sessionId,
+      questions: questions,
+      currentIndex: clampedIndex,
+      correctCount:
+          int.tryParse((payload['correct_count'] ?? '0').toString()) ?? 0,
+      answeredCurrent:
+          (payload['answered_current'] ?? false).toString().toLowerCase() ==
+          'true',
+      showAnswer:
+          (payload['show_answer'] ?? false).toString().toLowerCase() == 'true',
+      startedAtCurrent:
+          DateTime.tryParse((payload['started_at_current'] ?? '').toString()) ??
+          DateTime.now(),
+      lastIsCorrect:
+          (payload['last_is_correct'] ?? false).toString().toLowerCase() ==
+          'true',
+      lastTimeSeconds:
+          double.tryParse((payload['last_time_seconds'] ?? '0').toString()) ??
+          0,
+      explanations: _jsonToIntStringMap(payload['explanations']),
+      memoryTips: _jsonToIntStringMap(payload['memory_tips']),
+      internetContexts: _jsonToIntStringMap(payload['internet_contexts']),
+      quizSelectedOptions: _jsonToIntStringMap(
+        payload['quiz_selected_options'],
+      ),
+      quizIsCorrectByIndex: _jsonToIntBoolMap(payload['quiz_is_correct']),
+      quizTimeSecondsByIndex: _jsonToIntDoubleMap(payload['quiz_time_seconds']),
+      finalized:
+          (payload['finalized'] ?? false).toString().toLowerCase() == 'true',
+    );
+  }
+
+  Future<void> _persistStudySessionSnapshot() async {
+    final session = studySession;
+    if (session == null) {
+      await _clearStudySessionSnapshot();
+      return;
+    }
+    final payload = jsonEncode(_serializeStudySession(session));
+    await databaseService.setCache(
+      cacheKey: _studySessionCacheKey,
+      cacheType: 'session',
+      payload: payload,
+    );
+  }
+
+  Future<void> _clearStudySessionSnapshot() async {
+    await databaseService.deleteCache(_studySessionCacheKey);
+  }
+
+  Future<void> _restoreStudySessionSnapshot() async {
+    final raw = await databaseService.getCache(_studySessionCacheKey);
+    if (raw == null || raw.trim().isEmpty) {
+      return;
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) {
+        await _clearStudySessionSnapshot();
+        return;
+      }
+      final mapped = decoded.map(
+        (key, value) => MapEntry(key.toString(), value as Object?),
+      );
+      final restored = _deserializeStudySession(mapped);
+      if (restored == null) {
+        await _clearStudySessionSnapshot();
+        return;
+      }
+      studySession = restored;
+    } catch (_) {
+      await _clearStudySessionSnapshot();
+    }
   }
 
   Future<void> refreshDashboard() async {
@@ -1255,6 +1503,7 @@ class AppState extends ChangeNotifier {
       uploadAnswerMismatchQuestions = <UploadSimilarityMatch>[];
       dbQualityReport = null;
       studySession = null;
+      await _clearStudySessionSnapshot();
       await refreshDashboard();
     } catch (e) {
       errorMessage = 'Ошибка сброса базы: $e';
@@ -1301,6 +1550,7 @@ class AppState extends ChangeNotifier {
         sessionId: sessionId,
         questions: questions,
       );
+      await _persistStudySessionSnapshot();
       return null;
     } catch (e) {
       return 'Ошибка запуска сессии: $e';
@@ -1347,6 +1597,7 @@ class AppState extends ChangeNotifier {
     if (isCorrect) {
       session.correctCount += 1;
     }
+    await _persistStudySessionSnapshot();
     notifyListeners();
   }
 
@@ -1376,6 +1627,7 @@ class AppState extends ChangeNotifier {
     if (isCorrect) {
       session.correctCount += 1;
     }
+    await _persistStudySessionSnapshot();
     notifyListeners();
   }
 
@@ -1385,6 +1637,7 @@ class AppState extends ChangeNotifier {
       return;
     }
     session.showAnswer = true;
+    unawaited(_persistStudySessionSnapshot());
     notifyListeners();
   }
 
@@ -1399,6 +1652,7 @@ class AppState extends ChangeNotifier {
     if (!session.answeredCurrent) {
       session.showAnswer = false;
     }
+    unawaited(_persistStudySessionSnapshot());
     notifyListeners();
   }
 
@@ -1410,6 +1664,7 @@ class AppState extends ChangeNotifier {
     session.currentIndex -= 1;
     _syncCurrentQuestionFlags(session);
     session.showAnswer = session.answeredCurrent;
+    unawaited(_persistStudySessionSnapshot());
     notifyListeners();
   }
 
@@ -1428,6 +1683,7 @@ class AppState extends ChangeNotifier {
     if (!session.answeredCurrent) {
       session.showAnswer = false;
     }
+    unawaited(_persistStudySessionSnapshot());
     notifyListeners();
   }
 
@@ -1464,6 +1720,7 @@ class AppState extends ChangeNotifier {
       correctAnswers: session.correctCount,
     );
     await refreshDashboard();
+    await _persistStudySessionSnapshot();
     notifyListeners();
   }
 
@@ -1506,6 +1763,7 @@ class AppState extends ChangeNotifier {
         break;
     }
     session.explanations[question.id!] = explanation;
+    await _persistStudySessionSnapshot();
     notifyListeners();
     return explanation;
   }
@@ -1549,6 +1807,7 @@ class AppState extends ChangeNotifier {
         break;
     }
     session.memoryTips[question.id!] = memoryTip;
+    await _persistStudySessionSnapshot();
     notifyListeners();
     return memoryTip;
   }
@@ -1599,6 +1858,7 @@ class AppState extends ChangeNotifier {
     session.questions[session.currentIndex] = current.copyWith(
       isHard: nextValue,
     );
+    await _persistStudySessionSnapshot();
     notifyListeners();
     return nextValue;
   }
@@ -1614,8 +1874,58 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  List<int> wrongQuizQuestionIndexes() {
+    final session = studySession;
+    if (session == null || session.questions.isEmpty) {
+      return <int>[];
+    }
+    final indexes = <int>[];
+    for (var i = 0; i < session.questions.length; i++) {
+      final isCorrect = session.quizIsCorrectByIndex[i];
+      if (isCorrect == false) {
+        indexes.add(i);
+      }
+    }
+    return indexes;
+  }
+
+  Future<String?> startRetryWrongAnswersSession() async {
+    final current = studySession;
+    if (current == null) {
+      return 'Нет завершенной сессии.';
+    }
+    if (!current.isCompleted) {
+      return 'Сначала завершите текущий тест.';
+    }
+    final wrongIndexes = wrongQuizQuestionIndexes();
+    if (wrongIndexes.isEmpty) {
+      return 'Ошибок не найдено. Все ответы верные.';
+    }
+
+    final wrongQuestions = wrongIndexes
+        .map((index) => current.questions[index])
+        .toList(growable: false);
+    final nextSessionMode = current.mode == StudyMode.flashcards
+        ? StudyMode.quiz
+        : current.mode;
+    final sessionId = await quizEngine.startSession(
+      mode: nextSessionMode,
+      totalQuestions: wrongQuestions.length,
+      categoryFilter: 'wrong_answers:${current.sessionId}',
+    );
+    studySession = StudySessionState(
+      mode: nextSessionMode,
+      sessionId: sessionId,
+      questions: wrongQuestions,
+    );
+    await _persistStudySessionSnapshot();
+    notifyListeners();
+    return null;
+  }
+
   void stopSession() {
     studySession = null;
+    unawaited(_clearStudySessionSnapshot());
     notifyListeners();
   }
 
