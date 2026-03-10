@@ -116,6 +116,7 @@ class QuizEngine {
     String? category,
     List<String>? categories,
     int? difficulty,
+    bool onlyMultiSelect = false,
   }) async {
     final selectedCategories = <String>{
       if (category != null &&
@@ -137,6 +138,7 @@ class QuizEngine {
             limit: limit,
             categories: selectedCategories,
             difficulty: difficulty,
+            onlyMultiSelect: onlyMultiSelect,
           );
         }
         final weak = await databaseService.weakestCategories(limit: 3);
@@ -146,6 +148,7 @@ class QuizEngine {
             category: category,
             categories: selectedCategories,
             difficulty: difficulty,
+            onlyMultiSelect: onlyMultiSelect,
           );
         }
         final pool = <Question>[];
@@ -157,6 +160,7 @@ class QuizEngine {
               category: item['category']?.toString(),
               categories: selectedCategories,
               difficulty: difficulty,
+              onlyMultiSelect: onlyMultiSelect,
             ),
           );
         }
@@ -167,6 +171,7 @@ class QuizEngine {
           category: category,
           categories: selectedCategories,
           difficulty: difficulty,
+          onlyMultiSelect: onlyMultiSelect,
           limit: 5000,
         );
         final sorted = List<Question>.from(byCategory)
@@ -179,6 +184,7 @@ class QuizEngine {
           categories: selectedCategories,
           difficulty: difficulty,
           onlyHard: true,
+          onlyMultiSelect: onlyMultiSelect,
         );
       case StudyMode.flashcards:
       case StudyMode.quiz:
@@ -187,6 +193,7 @@ class QuizEngine {
           category: category,
           categories: selectedCategories,
           difficulty: difficulty,
+          onlyMultiSelect: onlyMultiSelect,
         );
     }
   }

@@ -443,6 +443,7 @@ class DatabaseService {
     int? difficulty,
     String? searchQuery,
     bool onlyHard = false,
+    bool onlyMultiSelect = false,
   }) async {
     final db = await database;
     final where = <String>['1 = 1'];
@@ -450,6 +451,9 @@ class DatabaseService {
 
     if (onlyHard) {
       where.add('COALESCE(is_hard, 0) = 1');
+    }
+    if (onlyMultiSelect) {
+      where.add('COALESCE(correct_answers_json, \'\') LIKE \'%","%\'');
     }
     _addCategoryFilter(
       where: where,
@@ -491,6 +495,7 @@ class DatabaseService {
     int? difficulty,
     String? searchQuery,
     bool onlyHard = false,
+    bool onlyMultiSelect = false,
     int limit = 1000,
   }) async {
     final db = await database;
@@ -499,6 +504,9 @@ class DatabaseService {
 
     if (onlyHard) {
       where.add('COALESCE(is_hard, 0) = 1');
+    }
+    if (onlyMultiSelect) {
+      where.add('COALESCE(correct_answers_json, \'\') LIKE \'%","%\'');
     }
     _addCategoryFilter(
       where: where,
@@ -546,12 +554,14 @@ class DatabaseService {
     List<String>? categories,
     int? difficulty,
     bool onlyHard = false,
+    bool onlyMultiSelect = false,
   }) async {
     final rows = await getQuestions(
       category: category,
       categories: categories,
       difficulty: difficulty,
       onlyHard: onlyHard,
+      onlyMultiSelect: onlyMultiSelect,
       limit: 5000,
     );
     rows.shuffle(Random());

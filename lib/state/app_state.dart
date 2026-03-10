@@ -633,6 +633,7 @@ class AppState extends ChangeNotifier {
     String? category,
     List<String>? categories,
     int? difficulty,
+    bool onlyMultiSelect = false,
   }) async {
     switch (mode) {
       case StudyMode.review:
@@ -645,6 +646,7 @@ class AppState extends ChangeNotifier {
           category: category,
           categories: categories,
           difficulty: difficulty,
+          onlyMultiSelect: onlyMultiSelect,
         );
       case StudyMode.hardQuestions:
         return databaseService.countQuestions(
@@ -652,6 +654,7 @@ class AppState extends ChangeNotifier {
           categories: categories,
           difficulty: difficulty,
           onlyHard: true,
+          onlyMultiSelect: onlyMultiSelect,
         );
     }
   }
@@ -1545,6 +1548,7 @@ class AppState extends ChangeNotifier {
     String? category,
     List<String>? categories,
     int? difficulty,
+    bool onlyMultiSelect = false,
   }) async {
     _setBusyState(
       value: true,
@@ -1561,6 +1565,7 @@ class AppState extends ChangeNotifier {
         category: category,
         categories: categories,
         difficulty: difficulty,
+        onlyMultiSelect: onlyMultiSelect,
       );
       if (questions.isEmpty) {
         return 'Не найдено вопросов под выбранные фильтры.';

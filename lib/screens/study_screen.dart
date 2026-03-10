@@ -27,6 +27,7 @@ class _StudyScreenState extends State<StudyScreen> {
   bool _availableQuestionsLoading = false;
   bool _hasLoadedAvailableQuestions = false;
   bool _useAllQuestions = false;
+  bool _onlyMultiSelect = false;
   int _countRequestId = 0;
 
   final Map<String, List<String>> _optionsCache = <String, List<String>>{};
@@ -205,6 +206,24 @@ class _StudyScreenState extends State<StudyScreen> {
                   },
                 ),
                 const SizedBox(height: 10),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  value: _onlyMultiSelect,
+                  onChanged: _mode == StudyMode.review
+                      ? null
+                      : (value) {
+                          setState(() {
+                            _onlyMultiSelect = value;
+                            _useAllQuestions = false;
+                          });
+                          _refreshAvailableCount(appState);
+                        },
+                  title: const Text('Только вопросы с несколькими ответами'),
+                  subtitle: const Text(
+                    'Показывать только вопросы, где нужно выбрать несколько правильных вариантов.',
+                  ),
+                ),
+                const SizedBox(height: 6),
                 Row(
                   children: <Widget>[
                     Text('Доступно вопросов: $available'),
@@ -298,6 +317,7 @@ class _StudyScreenState extends State<StudyScreen> {
                             totalQuestions: targetCount,
                             categories: selectedCategories,
                             difficulty: _difficulty,
+                            onlyMultiSelect: _onlyMultiSelect,
                           );
                           if (!context.mounted) {
                             return;
@@ -1180,6 +1200,7 @@ class _StudyScreenState extends State<StudyScreen> {
         mode: _mode,
         categories: selectedCategories,
         difficulty: _difficulty,
+        onlyMultiSelect: _onlyMultiSelect,
       );
       if (!mounted || requestId != _countRequestId) {
         return;
