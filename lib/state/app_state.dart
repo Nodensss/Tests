@@ -458,6 +458,33 @@ class AppState extends ChangeNotifier {
     return result;
   }
 
+  String _encodeSelectedAnswers(Iterable<String> values) {
+    final normalized = values
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+    return jsonEncode(normalized);
+  }
+
+  List<String> decodeSelectedAnswers(String? raw) {
+    final trimmed = (raw ?? '').trim();
+    if (trimmed.isEmpty) {
+      return const <String>[];
+    }
+    if (trimmed.startsWith('[')) {
+      try {
+        final decoded = jsonDecode(trimmed);
+        if (decoded is List) {
+          return decoded
+              .map((item) => item.toString().trim())
+              .where((item) => item.isNotEmpty)
+              .toList(growable: false);
+        }
+      } catch (_) {}
+    }
+    return <String>[trimmed];
+  }
+
   Map<String, Object?> _serializeStudySession(StudySessionState session) {
     return <String, Object?>{
       'v': 1,
@@ -1560,6 +1587,10 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> answerQuizOption(String selectedOption) async {
+    return answerQuizOptions(<String>[selectedOption]);
+  }
+
+  Future<void> answerQuizOptions(List<String> selectedOptions) async {
     final session = studySession;
     if (session == null || session.isCompleted) {
       return;
@@ -1571,7 +1602,17 @@ class AppState extends ChangeNotifier {
       return;
     }
     final question = session.currentQuestion;
-    final isCorrect = selectedOption == question.correctAnswer;
+    final normalizedSelectedOptions = selectedOptions
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+    if (normalizedSelectedOptions.isEmpty) {
+      return;
+    }
+    final isCorrect = quizEngine.evaluateSelectedOptions(
+      question,
+      normalizedSelectedOptions,
+    );
     final elapsed = DateTime.now().difference(session.startedAtCurrent);
     final timeSpentSeconds = elapsed.inMilliseconds / 1000.0;
     final quality = quizEngine.qualityFromQuiz(
@@ -1581,14 +1622,16 @@ class AppState extends ChangeNotifier {
 
     await quizEngine.recordAnswer(
       question: question,
-      userAnswer: selectedOption,
+      userAnswer: normalizedSelectedOptions.join(' | '),
       isCorrect: isCorrect,
       timeSpentSeconds: timeSpentSeconds,
       sessionId: session.sessionId,
       quality: quality,
     );
 
-    session.quizSelectedOptions[currentIndex] = selectedOption;
+    session.quizSelectedOptions[currentIndex] = _encodeSelectedAnswers(
+      normalizedSelectedOptions,
+    );
     session.quizIsCorrectByIndex[currentIndex] = isCorrect;
     session.quizTimeSecondsByIndex[currentIndex] = timeSpentSeconds;
     session.answeredCurrent = true;

@@ -33,5 +33,39 @@ void main() {
       expect(options, contains('Белок'));
       expect(options.any((value) => value.trim().isEmpty), isFalse);
     });
+
+    test('evaluates multi-select answers by exact set equality', () {
+      final engine = QuizEngine(databaseService: DatabaseService.instance);
+      const current = Question(
+        questionText: 'Какие функции доступны? (2 правильных ответа)',
+        correctAnswer: 'Сканировать NFC\nФиксировать несоответствие',
+        correctAnswers: <String>[
+          'Сканировать NFC',
+          'Фиксировать несоответствие',
+        ],
+        wrongAnswers: <String>['Удалять базу', 'Отключать сервер', ''],
+      );
+
+      expect(
+        engine.evaluateSelectedOptions(current, <String>[
+          'Фиксировать несоответствие',
+          'Сканировать NFC',
+        ]),
+        isTrue,
+      );
+      expect(
+        engine.evaluateSelectedOptions(current, <String>[
+          'Сканировать NFC',
+        ]),
+        isFalse,
+      );
+      expect(
+        engine.evaluateSelectedOptions(current, <String>[
+          'Сканировать NFC',
+          'Удалять базу',
+        ]),
+        isFalse,
+      );
+    });
   });
 }

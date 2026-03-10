@@ -30,9 +30,12 @@ class _StudyScreenState extends State<StudyScreen> {
   int _countRequestId = 0;
 
   final Map<String, List<String>> _optionsCache = <String, List<String>>{};
-  String? _selectedOption;
+  final Set<String> _selectedOptions = <String>{};
+  final TextEditingController _multiSelectInputController =
+      TextEditingController();
   String? _explanation;
   String? _memoryTip;
+  bool _isSyncingMultiSelectInput = false;
 
   @override
   void initState() {
@@ -43,6 +46,12 @@ class _StudyScreenState extends State<StudyScreen> {
       }
       _refreshAvailableCount(context.read<AppState>());
     });
+  }
+
+  @override
+  void dispose() {
+    _multiSelectInputController.dispose();
+    super.dispose();
   }
 
   @override
@@ -298,7 +307,7 @@ class _StudyScreenState extends State<StudyScreen> {
                               context,
                             ).showSnackBar(SnackBar(content: Text(error)));
                           } else {
-                            _selectedOption = null;
+                            _selectedOptions.clear();
                             _optionsCache.clear();
                             _explanation = null;
                             _memoryTip = null;
@@ -689,10 +698,12 @@ class _StudyScreenState extends State<StudyScreen> {
     final question = session.currentQuestion;
     final index = session.currentIndex;
     final answeredCurrent = session.quizSelectedOptions.containsKey(index);
-    final selectedFromHistory = session.quizSelectedOptions[index];
-    final selectedOption = answeredCurrent
-        ? selectedFromHistory
-        : _selectedOption;
+    final selectedFromHistory = appState.decodeSelectedAnswers(
+      session.quizSelectedOptions[index],
+    );
+    final selectedOptions = answeredCurrent
+        ? selectedFromHistory.toSet()
+        : _selectedOptions;
     final currentTime = answeredCurrent
         ? (session.quizTimeSecondsByIndex[index] ?? session.lastTimeSeconds)
         : session.lastTimeSeconds;
@@ -705,6 +716,19 @@ class _StudyScreenState extends State<StudyScreen> {
         fallbackPool: session.questions,
       ),
     );
+    final correctOptions = question.allCorrectAnswers.toSet();
+    final selectedIndexes = <int>[];
+    for (var i = 0; i < options.length; i++) {
+      if (selectedOptions.contains(options[i])) {
+        selectedIndexes.add(i + 1);
+      }
+    }
+    final selectedIndexesLabel = selectedIndexes.join(', ');
+    if (question.isMultiSelect) {
+      _syncMultiSelectInputValue(selectedIndexesLabel);
+    } else {
+      _syncMultiSelectInputValue('');
+    }
 
     return Card(
       child: Padding(
@@ -712,27 +736,82 @@ class _StudyScreenState extends State<StudyScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
+            if (question.isMultiSelect) ...<Widget>[
+              Text(
+                'Выберите ${question.requiredCorrectAnswersCount} правильных вариантов',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.secondary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _multiSelectInputController,
+                enabled: !answeredCurrent,
+                keyboardType: TextInputType.number,
+                inputFormatters: <TextInputFormatter>[
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9,\s]')),
+                ],
+                decoration: const InputDecoration(
+                  labelText: 'Номера ответов через запятую',
+                  hintText: 'Например: 1, 3, 4, 7',
+                  helperText: 'Можно вводить номера или нажимать по вариантам ниже',
+                ),
+                onChanged: answeredCurrent
+                    ? null
+                    : (value) => _handleMultiSelectInputChanged(value, options),
+              ),
+              const SizedBox(height: 10),
+            ],
             Column(
-              children: options
-                  .map(
-                    (option) => _buildAnswerOptionTile(
-                      context: context,
-                      text: option,
-                      selected: selectedOption == option,
-                      answered: answeredCurrent,
-                      isCorrectOption: option == question.correctAnswer,
-                      isChosenOption: selectedOption == option,
-                      onTap: answeredCurrent
-                          ? null
-                          : () {
-                              setState(() {
-                                _selectedOption = option;
-                              });
-                            },
-                    ),
-                  )
-                  .toList(growable: false),
+              children: options.asMap().entries.map((entry) {
+                final optionIndex = entry.key;
+                final option = entry.value;
+                return _buildAnswerOptionTile(
+                  context: context,
+                  optionNumber: optionIndex + 1,
+                  text: option,
+                  selected: selectedOptions.contains(option),
+                  answered: answeredCurrent,
+                  isCorrectOption: correctOptions.contains(option),
+                  isChosenOption: selectedOptions.contains(option),
+                    onTap: answeredCurrent
+                        ? null
+                        : () {
+                            setState(() {
+                              if (question.isMultiSelect) {
+                              if (_selectedOptions.contains(option)) {
+                                _selectedOptions.remove(option);
+                                } else {
+                                  _selectedOptions.add(option);
+                                }
+                                final updatedIndexes = <int>[];
+                                for (var i = 0; i < options.length; i++) {
+                                  if (_selectedOptions.contains(options[i])) {
+                                    updatedIndexes.add(i + 1);
+                                  }
+                                }
+                                _syncMultiSelectInputValue(
+                                  updatedIndexes.join(', '),
+                                );
+                              } else {
+                                _selectedOptions
+                                  ..clear()
+                                  ..add(option);
+                              }
+                          });
+                        },
+                );
+              }).toList(growable: false),
             ),
+            if (!answeredCurrent && question.isMultiSelect) ...<Widget>[
+              const SizedBox(height: 4),
+              Text(
+                selectedIndexes.isEmpty
+                    ? 'Выбрано: ничего'
+                    : 'Выбрано: $selectedIndexesLabel',
+              ),
+            ],
             const SizedBox(height: 10),
             SizedBox(
               width: double.infinity,
@@ -1029,7 +1108,7 @@ class _StudyScreenState extends State<StudyScreen> {
                             ).showSnackBar(SnackBar(content: Text(error)));
                           } else {
                             setState(() {
-                              _selectedOption = null;
+                              _selectedOptions.clear();
                               _explanation = null;
                               _memoryTip = null;
                               _optionsCache.clear();
@@ -1052,8 +1131,12 @@ class _StudyScreenState extends State<StudyScreen> {
                 else
                   ...wrongIndexes.map((index) {
                     final question = session.questions[index];
-                    final userAnswer =
-                        session.quizSelectedOptions[index] ?? 'Нет ответа';
+                    final userAnswers = appState.decodeSelectedAnswers(
+                      session.quizSelectedOptions[index],
+                    );
+                    final userAnswer = userAnswers.isEmpty
+                        ? 'Нет ответа'
+                        : userAnswers.join(' | ');
                     return Container(
                       margin: const EdgeInsets.only(bottom: 10),
                       padding: const EdgeInsets.all(10),
@@ -1072,7 +1155,7 @@ class _StudyScreenState extends State<StudyScreen> {
                           const SizedBox(height: 4),
                           SelectableText('Ваш ответ: $userAnswer'),
                           SelectableText(
-                            'Правильный ответ: ${question.correctAnswer}',
+                            'Правильный ответ: ${question.allCorrectAnswers.join(' | ')}',
                           ),
                         ],
                       ),
@@ -1140,7 +1223,7 @@ class _StudyScreenState extends State<StudyScreen> {
 
   void _resetCurrentSession(AppState appState) {
     setState(() {
-      _selectedOption = null;
+      _selectedOptions.clear();
       _explanation = null;
       _memoryTip = null;
       _optionsCache.clear();
@@ -1194,6 +1277,7 @@ class _StudyScreenState extends State<StudyScreen> {
 
   Widget _buildAnswerOptionTile({
     required BuildContext context,
+    required int optionNumber,
     required String text,
     required bool selected,
     required bool answered,
@@ -1245,7 +1329,7 @@ class _StudyScreenState extends State<StudyScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Text(text, softWrap: true),
+              Text('$optionNumber. $text', softWrap: true),
               if (text.trim().length > 120)
                 Align(
                   alignment: Alignment.centerLeft,
@@ -1434,10 +1518,12 @@ class _StudyScreenState extends State<StudyScreen> {
         !session.isCompleted &&
         session.quizSelectedOptions.containsKey(session.currentIndex);
     return FilledButton(
-      onPressed: answeredCurrent || _selectedOption == null
+      onPressed: answeredCurrent || _selectedOptions.isEmpty
           ? null
           : () async {
-              await appState.answerQuizOption(_selectedOption!);
+              await appState.answerQuizOptions(
+                _selectedOptions.toList(growable: false),
+              );
               if (!mounted) {
                 return;
               }
@@ -1447,6 +1533,36 @@ class _StudyScreenState extends State<StudyScreen> {
             },
       child: const Text('Ответить'),
     );
+  }
+
+  void _handleMultiSelectInputChanged(String value, List<String> options) {
+    if (_isSyncingMultiSelectInput) {
+      return;
+    }
+    final parsedIndexes = RegExp(
+      r'\d+',
+    ).allMatches(value).map((match) => int.parse(match.group(0)!)).toSet();
+    setState(() {
+      _selectedOptions
+        ..clear()
+        ..addAll(
+          parsedIndexes
+              .where((index) => index >= 1 && index <= options.length)
+              .map((index) => options[index - 1]),
+        );
+    });
+  }
+
+  void _syncMultiSelectInputValue(String value) {
+    if (_multiSelectInputController.text == value) {
+      return;
+    }
+    _isSyncingMultiSelectInput = true;
+    _multiSelectInputController.value = TextEditingValue(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
+    );
+    _isSyncingMultiSelectInput = false;
   }
 
   Future<void> _handleFullscreenMenuAction(
@@ -1487,14 +1603,21 @@ class _StudyScreenState extends State<StudyScreen> {
 
   void _syncLocalFromSession(StudySessionState? session) {
     if (session == null || session.isCompleted) {
-      _selectedOption = null;
+      _selectedOptions.clear();
+      _syncMultiSelectInputValue('');
       _explanation = null;
       _memoryTip = null;
       return;
     }
     final idx = session.currentIndex;
     final questionId = session.currentQuestion.id;
-    _selectedOption = session.quizSelectedOptions[idx];
+    _selectedOptions
+      ..clear()
+      ..addAll(
+        context.read<AppState>().decodeSelectedAnswers(
+          session.quizSelectedOptions[idx],
+        ),
+      );
     _explanation = questionId == null ? null : session.explanations[questionId];
     _memoryTip = questionId == null ? null : session.memoryTips[questionId];
   }

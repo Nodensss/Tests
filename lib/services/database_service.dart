@@ -43,13 +43,14 @@ class DatabaseService {
     final dbPath = p.join(basePath, 'quiz_trainer_flutter.db');
     return openDatabase(
       dbPath,
-      version: 3,
+      version: 4,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE questions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             question_text TEXT NOT NULL,
             correct_answer TEXT NOT NULL,
+            correct_answers_json TEXT,
             wrong_answer_1 TEXT,
             wrong_answer_2 TEXT,
             wrong_answer_3 TEXT,
@@ -131,6 +132,11 @@ class DatabaseService {
             'ALTER TABLE questions ADD COLUMN is_hard INTEGER DEFAULT 0;',
           );
         }
+        if (oldVersion < 4) {
+          await db.execute(
+            'ALTER TABLE questions ADD COLUMN correct_answers_json TEXT;',
+          );
+        }
       },
     );
   }
@@ -174,6 +180,8 @@ class DatabaseService {
           }
           final normalizedQuestionText = question.questionText.trim();
           final normalizedCorrectAnswer = question.correctAnswer.trim();
+          final normalizedCorrectAnswersJson =
+              question.toMap()['correct_answers_json'];
           final wrong1 = question.wrongAnswers.isNotEmpty
               ? question.wrongAnswers[0]
               : '';
@@ -220,6 +228,7 @@ class DatabaseService {
               final repaired = await txn.update(
                 'questions',
                 <String, Object?>{
+                  'correct_answers_json': normalizedCorrectAnswersJson,
                   'wrong_answer_1': wrong1,
                   'wrong_answer_2': wrong2,
                   'wrong_answer_3': wrong3,
@@ -255,13 +264,14 @@ class DatabaseService {
           final insertedId = await txn.rawInsert(
             '''
             INSERT OR IGNORE INTO questions (
-              question_text, correct_answer, wrong_answer_1, wrong_answer_2, wrong_answer_3,
+              question_text, correct_answer, correct_answers_json, wrong_answer_1, wrong_answer_2, wrong_answer_3,
               is_hard, competency, category, subcategory, difficulty, keywords, explanation, source_file, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
             <Object?>[
               normalizedQuestionText,
               normalizedCorrectAnswer,
+              normalizedCorrectAnswersJson,
               wrong1,
               wrong2,
               wrong3,
@@ -299,6 +309,7 @@ class DatabaseService {
             SET
               is_hard = CASE WHEN ? = 1 THEN 1 ELSE is_hard END,
               competency = CASE WHEN ? = '' THEN competency ELSE ? END,
+              correct_answers_json = COALESCE(?, correct_answers_json),
               category = ?,
               subcategory = ?,
               difficulty = ?,
@@ -315,6 +326,7 @@ class DatabaseService {
               question.isHard ? 1 : 0,
               competency,
               competency,
+              normalizedCorrectAnswersJson,
               question.category,
               question.subcategory,
               question.difficulty,

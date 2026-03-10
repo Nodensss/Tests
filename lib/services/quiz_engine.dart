@@ -29,6 +29,11 @@ class QuizEngine {
     int targetCount = 4,
   }) {
     final options = <String>{};
+    final correctAnswers = question.allCorrectAnswers;
+    final minimumTargetCount = question.isMultiSelect
+        ? max(correctAnswers.length + 3, targetCount)
+        : targetCount;
+
     void addOption(String value) {
       final trimmed = value.trim();
       if (trimmed.isEmpty) {
@@ -37,23 +42,19 @@ class QuizEngine {
       options.add(trimmed);
     }
 
-    addOption(question.correctAnswer);
+    for (final correct in correctAnswers) {
+      addOption(correct);
+    }
     for (final wrong in question.wrongAnswers) {
       addOption(wrong);
     }
 
-    final providedWrongUniqueCount = question.wrongAnswers
-        .map((value) => value.trim())
-        .where((value) => value.isNotEmpty)
-        .toSet()
-        .length;
-
-    // If the source already has at least 2 distractors, do not inject
-    // random answers from other questions (it can produce irrelevant options).
-    if (providedWrongUniqueCount < 2 && options.length < targetCount) {
+    if (options.length < minimumTargetCount) {
       final questionTextKey = question.questionText.trim().toLowerCase();
       final questionId = question.id;
-      final correctLower = question.correctAnswer.trim().toLowerCase();
+      final correctLowerValues = correctAnswers
+          .map((item) => item.trim().toLowerCase())
+          .toSet();
 
       final fallbackCandidates = <String>[];
       for (final candidate in fallbackPool) {
@@ -66,7 +67,7 @@ class QuizEngine {
         if (sameById || sameByText) {
           continue;
         }
-        fallbackCandidates.add(candidate.correctAnswer);
+        fallbackCandidates.addAll(candidate.allCorrectAnswers);
         fallbackCandidates.addAll(candidate.wrongAnswers);
       }
 
@@ -76,11 +77,11 @@ class QuizEngine {
         if (trimmed.isEmpty) {
           continue;
         }
-        if (trimmed.toLowerCase() == correctLower) {
+        if (correctLowerValues.contains(trimmed.toLowerCase())) {
           continue;
         }
         options.add(trimmed);
-        if (options.length >= targetCount) {
+        if (options.length >= minimumTargetCount) {
           break;
         }
       }
@@ -89,6 +90,24 @@ class QuizEngine {
     final shuffled = options.toList(growable: false);
     shuffled.shuffle(Random());
     return shuffled;
+  }
+
+  bool evaluateSelectedOptions(
+    Question question,
+    Iterable<String> selectedOptions,
+  ) {
+    final normalizedSelected = selectedOptions
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toSet();
+    final normalizedCorrect = question.allCorrectAnswers
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toSet();
+    if (normalizedSelected.length != normalizedCorrect.length) {
+      return false;
+    }
+    return normalizedSelected.containsAll(normalizedCorrect);
   }
 
   Future<List<Question>> loadQuestionsForMode({

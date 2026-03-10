@@ -6,6 +6,7 @@ class Question {
     required this.questionText,
     required this.correctAnswer,
     required this.wrongAnswers,
+    this.correctAnswers = const <String>[],
     this.isHard = false,
     this.competency,
     this.category,
@@ -21,6 +22,7 @@ class Question {
   final String questionText;
   final String correctAnswer;
   final List<String> wrongAnswers;
+  final List<String> correctAnswers;
   final bool isHard;
   final String? competency;
   final String? category;
@@ -36,6 +38,7 @@ class Question {
     String? questionText,
     String? correctAnswer,
     List<String>? wrongAnswers,
+    List<String>? correctAnswers,
     bool? isHard,
     String? competency,
     String? category,
@@ -51,6 +54,7 @@ class Question {
       questionText: questionText ?? this.questionText,
       correctAnswer: correctAnswer ?? this.correctAnswer,
       wrongAnswers: wrongAnswers ?? this.wrongAnswers,
+      correctAnswers: correctAnswers ?? this.correctAnswers,
       isHard: isHard ?? this.isHard,
       competency: competency ?? this.competency,
       category: category ?? this.category,
@@ -68,10 +72,12 @@ class Question {
     while (normalizedWrongAnswers.length < 3) {
       normalizedWrongAnswers.add('');
     }
+    final normalizedCorrectAnswers = allCorrectAnswers;
     return <String, Object?>{
       'id': id,
       'question_text': questionText,
       'correct_answer': correctAnswer,
+      'correct_answers_json': jsonEncode(normalizedCorrectAnswers),
       'wrong_answer_1': normalizedWrongAnswers[0],
       'wrong_answer_2': normalizedWrongAnswers[1],
       'wrong_answer_3': normalizedWrongAnswers[2],
@@ -107,15 +113,41 @@ class Question {
       parsedKeywords = const <String>[];
     }
 
+    final rawCorrectAnswers = map['correct_answers_json'];
+    List<String> parsedCorrectAnswers;
+    if (rawCorrectAnswers is String && rawCorrectAnswers.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(rawCorrectAnswers);
+        if (decoded is List) {
+          parsedCorrectAnswers = decoded
+              .map((item) => item.toString().trim())
+              .where((item) => item.isNotEmpty)
+              .toList(growable: false);
+        } else {
+          parsedCorrectAnswers = const <String>[];
+        }
+      } catch (_) {
+        parsedCorrectAnswers = const <String>[];
+      }
+    } else {
+      parsedCorrectAnswers = const <String>[];
+    }
+
+    final mappedCorrectAnswer = (map['correct_answer'] ?? '').toString();
+    if (parsedCorrectAnswers.isEmpty && mappedCorrectAnswer.trim().isNotEmpty) {
+      parsedCorrectAnswers = <String>[mappedCorrectAnswer.trim()];
+    }
+
     return Question(
       id: map['id'] as int?,
       questionText: (map['question_text'] ?? '').toString(),
-      correctAnswer: (map['correct_answer'] ?? '').toString(),
+      correctAnswer: mappedCorrectAnswer,
       wrongAnswers: <String>[
         (map['wrong_answer_1'] ?? '').toString(),
         (map['wrong_answer_2'] ?? '').toString(),
         (map['wrong_answer_3'] ?? '').toString(),
       ],
+      correctAnswers: parsedCorrectAnswers,
       isHard: map['is_hard'] == null
           ? false
           : ((map['is_hard'] as num?)?.toInt() ?? 0) == 1,
@@ -133,4 +165,16 @@ class Question {
           : DateTime.tryParse(map['created_at'].toString()),
     );
   }
+
+  List<String> get allCorrectAnswers {
+    final values = <String>[
+      ...correctAnswers.map((item) => item.trim()),
+      if (correctAnswers.isEmpty) correctAnswer.trim(),
+    ].where((item) => item.isNotEmpty);
+    return values.toSet().toList(growable: false);
+  }
+
+  bool get isMultiSelect => allCorrectAnswers.length > 1;
+
+  int get requiredCorrectAnswersCount => allCorrectAnswers.length;
 }

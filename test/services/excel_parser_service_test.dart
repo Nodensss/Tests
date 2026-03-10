@@ -44,5 +44,55 @@ void main() {
         'Полиэтилен высокого давления',
       ]);
     });
+
+    test('parses explicit multi-answer columns into multiple correct answers', () async {
+      final excel = Excel.createExcel();
+      final sheet = excel[excel.getDefaultSheet() ?? 'Sheet1'];
+
+      sheet.appendRow(<CellValue>[
+        TextCellValue('Вопрос'),
+        TextCellValue('Кол-во правильных'),
+        TextCellValue('Правильный 1'),
+        TextCellValue('Правильный 2'),
+        TextCellValue('Правильный 3'),
+        TextCellValue('Неправильный 1'),
+        TextCellValue('Неправильный 2'),
+        TextCellValue('Неправильный 3'),
+      ]);
+      sheet.appendRow(<CellValue>[
+        TextCellValue('Что можно делать в мобильных обходах (3 правильных ответа)'),
+        TextCellValue('3'),
+        TextCellValue('Сканировать NFC'),
+        TextCellValue('Фиксировать несоответствие'),
+        TextCellValue('Просматривать маршрут'),
+        TextCellValue('Отключать сервер'),
+        TextCellValue('Удалять базу'),
+        TextCellValue('Менять пароль домена'),
+      ]);
+
+      final encoded = excel.encode();
+      expect(encoded, isNotNull);
+
+      final parser = ExcelParserService();
+      final result = await parser.parse(
+        bytes: Uint8List.fromList(encoded!),
+        sourceFile: 'multi.xlsx',
+      );
+
+      expect(result.questions.length, 1);
+      final question = result.questions.first;
+      expect(question.isMultiSelect, isTrue);
+      expect(question.requiredCorrectAnswersCount, 3);
+      expect(question.allCorrectAnswers, <String>[
+        'Сканировать NFC',
+        'Фиксировать несоответствие',
+        'Просматривать маршрут',
+      ]);
+      expect(question.wrongAnswers, <String>[
+        'Отключать сервер',
+        'Удалять базу',
+        'Менять пароль домена',
+      ]);
+    });
   });
 }

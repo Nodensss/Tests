@@ -31,6 +31,14 @@ class ExcelParserService {
       'answer',
       'ответ',
     ],
+    'correct_count': <String>[
+      'кол во правильных',
+      'количество правильных',
+      'кол во верных',
+      'количество верных',
+      'correct count',
+      'number of correct answers',
+    ],
     'wrong1': <String>[
       'неправильный ответ 1',
       'wrong answer 1',
@@ -78,7 +86,18 @@ class ExcelParserService {
           .map((cell) => _normalize(_cellToString(cell)))
           .toList(growable: false);
       final mapped = _matchColumns(headers);
-      if (!mapped.containsKey('question') || !mapped.containsKey('correct')) {
+      final explicitCorrectIndexes = _matchIndexedColumns(
+        headers,
+        RegExp(r'^правильный( ответ)? \d+$'),
+      );
+      final explicitWrongIndexes = _matchIndexedColumns(
+        headers,
+        RegExp(r'^(неправильный ответ|неправильный|wrong answer|incorrect answer|вариант) \d+$'),
+      );
+      final hasLegacyCorrectColumn = mapped.containsKey('correct');
+      final hasExplicitCorrectColumns = explicitCorrectIndexes.isNotEmpty;
+      if (!mapped.containsKey('question') ||
+          (!hasLegacyCorrectColumn && !hasExplicitCorrectColumns)) {
         warnings.add(
           "Лист '$sheetName' пропущен: не найдены колонки вопроса/правильного ответа",
         );
@@ -96,11 +115,27 @@ class ExcelParserService {
 
         final questionText = readAt(mapped['question']);
         final correctAnswer = readAt(mapped['correct']);
-        if (questionText.isEmpty && correctAnswer.isEmpty) {
+        final explicitCorrectAnswers = explicitCorrectIndexes
+            .map(readAt)
+            .where((item) => item.isNotEmpty)
+            .toList(growable: false);
+        final explicitWrongAnswers = explicitWrongIndexes
+            .map(readAt)
+            .where((item) => item.isNotEmpty)
+            .toList(growable: false);
+        final inferredCorrectCount = _inferCorrectAnswerCount(
+          questionText: questionText,
+          explicitCountValue: readAt(mapped['correct_count']),
+        );
+
+        if (questionText.isEmpty &&
+            correctAnswer.isEmpty &&
+            explicitCorrectAnswers.isEmpty) {
           skippedRows += 1;
           continue;
         }
-        if (questionText.isEmpty || correctAnswer.isEmpty) {
+        if (questionText.isEmpty ||
+            (correctAnswer.isEmpty && explicitCorrectAnswers.isEmpty)) {
           skippedRows += 1;
           warnings.add(
             "Пропуск строки ${rowIndex + 1} на листе '$sheetName' из-за пустого вопроса/ответа",
@@ -108,15 +143,36 @@ class ExcelParserService {
           continue;
         }
 
+        final multiCorrectAnswers = explicitCorrectAnswers.isNotEmpty
+            ? explicitCorrectAnswers
+            : _splitLongCorrectAnswer(
+                correctAnswer,
+                expectedCount: inferredCorrectCount,
+              );
+        final normalizedCorrectAnswers = multiCorrectAnswers
+            .map((item) => item.trim())
+            .where((item) => item.isNotEmpty)
+            .toList(growable: false);
+        final displayCorrectAnswer = normalizedCorrectAnswers.isEmpty
+            ? correctAnswer
+            : normalizedCorrectAnswers.length > 1
+            ? normalizedCorrectAnswers.join('\n')
+            : normalizedCorrectAnswers.first;
+        final fallbackWrongAnswers = <String>[
+          readAt(mapped['wrong1']),
+          readAt(mapped['wrong2']),
+          readAt(mapped['wrong3']),
+        ].where((item) => item.isNotEmpty).toList(growable: false);
+        final wrongAnswers = explicitWrongAnswers.isNotEmpty
+            ? explicitWrongAnswers
+            : fallbackWrongAnswers;
+
         parsed.add(
           Question(
             questionText: questionText,
-            correctAnswer: correctAnswer,
-            wrongAnswers: <String>[
-              readAt(mapped['wrong1']),
-              readAt(mapped['wrong2']),
-              readAt(mapped['wrong3']),
-            ],
+            correctAnswer: displayCorrectAnswer.trim(),
+            correctAnswers: normalizedCorrectAnswers,
+            wrongAnswers: wrongAnswers,
             competency: readAt(mapped['competency']),
             sourceFile: sourceFile,
           ),
@@ -193,6 +249,22 @@ class ExcelParserService {
     return mapped;
   }
 
+  List<int> _matchIndexedColumns(List<String> headers, RegExp pattern) {
+    final matches = <MapEntry<int, int>>[];
+    for (var i = 0; i < headers.length; i++) {
+      final header = headers[i];
+      final match = pattern.firstMatch(header);
+      if (match == null) {
+        continue;
+      }
+      final rawIndex = RegExp(r'(\d+)$').firstMatch(header)?.group(1);
+      final numericIndex = int.tryParse(rawIndex ?? '') ?? (matches.length + 1);
+      matches.add(MapEntry<int, int>(numericIndex, i));
+    }
+    matches.sort((a, b) => a.key.compareTo(b.key));
+    return matches.map((entry) => entry.value).toList(growable: false);
+  }
+
   int? _findHeaderMatch({
     required List<String> headers,
     required List<String> aliases,
@@ -261,5 +333,74 @@ class ExcelParserService {
     }
     final value = cell.value;
     return value.toString();
+  }
+
+  int? _inferCorrectAnswerCount({
+    required String questionText,
+    required String explicitCountValue,
+  }) {
+    final explicit = int.tryParse(explicitCountValue.trim());
+    if (explicit != null && explicit > 1) {
+      return explicit;
+    }
+    final match = RegExp(
+      r'(\d+)\s+правильн\w*\s+ответ',
+      caseSensitive: false,
+      unicode: true,
+    ).firstMatch(questionText);
+    final inferred = int.tryParse(match?.group(1) ?? '');
+    if (inferred != null && inferred > 1) {
+      return inferred;
+    }
+    return null;
+  }
+
+  List<String> _splitLongCorrectAnswer(
+    String rawAnswer, {
+    required int? expectedCount,
+  }) {
+    final trimmed = rawAnswer.trim();
+    if (trimmed.isEmpty || expectedCount == null || expectedCount <= 1) {
+      return trimmed.isEmpty ? const <String>[] : <String>[trimmed];
+    }
+
+    final candidates = <List<String>>[
+      _splitAnswerParts(trimmed, RegExp(r'[\r\n]+')),
+      _splitAnswerParts(trimmed, RegExp(r'\s*;\s*')),
+      _splitAnswerParts(trimmed, RegExp(r'\s*\u2022\s*')),
+      _splitAnswerParts(trimmed, RegExp(r'\s+(?=\d+[).]\s*)')),
+      _splitAnswerParts(
+        trimmed,
+        RegExp(r'(?<=[.!?])\s+(?=[A-ZА-ЯЁ0-9])', unicode: true),
+      ),
+    ];
+
+    for (final candidate in candidates) {
+      if (candidate.length == expectedCount) {
+        return candidate;
+      }
+    }
+    for (final candidate in candidates) {
+      if (candidate.length > 1 && candidate.length >= expectedCount - 1) {
+        return candidate;
+      }
+    }
+    return <String>[trimmed];
+  }
+
+  List<String> _splitAnswerParts(String rawAnswer, Pattern separator) {
+    final parts = rawAnswer
+        .split(separator)
+        .map(
+          (item) => item
+              .replaceFirst(
+                RegExp(r'^\s*(\d+|[a-zа-я])[\).:-]\s*', unicode: true),
+                '',
+              )
+              .trim(),
+        )
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+    return parts.toSet().toList(growable: false);
   }
 }
